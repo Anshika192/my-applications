@@ -1,0 +1,23 @@
+# Python venv
+venv/
+.venv/
+
+# Node / frontend
+node_modules/
+dist/
+build/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Temp folders
+uploads/
+output/
+temp_uploads/
+temp_mom/
+
+# DB + env
+app.db
+.env
