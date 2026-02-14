@@ -1,6 +1,7 @@
 # Python venv
 venv/
 .venv/
+backend/venv_old/
 
 # Node / frontend
 node_modules/
@@ -12,12 +13,15 @@ __pycache__/
 *.pyc
 *.pyo
 
-# Temp folders
+# Temp / outputs
 uploads/
 output/
 temp_uploads/
 temp_mom/
 
-# DB + env
+# Local DB + secrets
 app.db
 .env
+
+# Generated PDFs (safety)
+backend/unlocked_*.pdf
