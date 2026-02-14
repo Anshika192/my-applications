@@ -5,33 +5,48 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import os, io, uuid, shutil
+
 from PyPDF2 import PdfMerger, PdfReader, PdfWriter
 from pdf2docx import Converter
-
-import models, schemas, database
-from routers.pdf_to_image import router as pdf_image_router
-from routers.auth import router as auth_router   # ✅ ADD
-from routers.user_data import router as user_data_router
 from pptx import Presentation
 import pandas as pd
 
-# Create tables
-models.Base.metadata.create_all(bind=database.engine)
+import models, schemas, database
+from routers.pdf_to_image import router as pdf_image_router
+from routers.auth import router as auth_router
+from routers.user_data import router as user_data_router
 
+# ------------------ bootstrap: ensure volatile dirs exist ------------------
+NEEDED_DIRS = ["uploads", "output", "temp_uploads", "temp_mom"]
+for d in NEEDED_DIRS:
+    os.makedirs(d, exist_ok=True)
+
+# ------------------ app ------------------
 app = FastAPI()
+
+# Static mounts (avoid import-time crash)
+app.mount("/uploads",      StaticFiles(directory="uploads",      check_dir=False), name="uploads")
+app.mount("/output",       StaticFiles(directory="output",       check_dir=False), name="output")
+app.mount("/temp_uploads", StaticFiles(directory="temp_uploads", check_dir=False), name="temp_uploads")
+app.mount("/temp_mom",     StaticFiles(directory="temp_mom",     check_dir=False), name="temp_mom")
+
+# DB tables
+models.Base.metadata.create_all(bind=database.engine)
 
 # Routers
 app.include_router(pdf_image_router)
-app.include_router(auth_router)  # ✅ ADD
+app.include_router(auth_router)
 app.include_router(user_data_router)
 
+# CORS
 origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:3000",
+    # Add your deployed frontend URL here later (e.g. Vercel):
+    # "https://<your-frontend>.vercel.app",
     "https://minapplications-frontend.onrender.com",
 ]
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -40,11 +55,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.mount("/temp_mom", StaticFiles(directory="temp_mom"), name="temp_mom")
-
-# ✅ use dependency from database.py (NO duplicate get_db)
+# Share the DB session dependency
 get_db = database.get_db
 
+# ---- Health check (useful for Render) ----
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+# ------------------ CRUD sample ------------------
 @app.get("/applications", response_model=List[schemas.ApplicationRead])
 def read_applications(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     return db.query(models.Application).offset(skip).limit(limit).all()
@@ -58,11 +77,7 @@ def create_application(application: schemas.ApplicationCreate, db: Session = Dep
     return db_application
 
 
-
-# ------------------ PDF TO WORD ------------------
-
-
-
+# ------------------ PDF SPLIT ------------------
 @app.post("/convert/pdf-split")
 def split_pdf(
     background_tasks: BackgroundTasks,
@@ -86,12 +101,10 @@ def split_pdf(
         writer = PdfWriter()
 
         selected_pages = set()
-
         for part in pages.split(","):
             part = part.strip()
             if not part:
                 continue
-
             if "-" in part:
                 start, end = part.split("-")
                 for i in range(int(start), int(end) + 1):
@@ -109,21 +122,15 @@ def split_pdf(
         with open(output_path, "wb") as f:
             writer.write(f)
 
-        # ⭐ delete AFTER response is sent
-        background_tasks.add_task(shutil.rmtree, temp_dir)
+        background_tasks.add_task(shutil.rmtree, temp_dir, ignore_errors=True)
 
-        return FileResponse(
-            output_path,
-            filename="split.pdf",
-            media_type="application/pdf"
-        )
+        return FileResponse(output_path, filename="split.pdf", media_type="application/pdf")
 
     except Exception as e:
         shutil.rmtree(temp_dir, ignore_errors=True)
-        raise HTTPException(status_code=500, detail=str(e))   
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ------------------ PDF LOCK ------------------
-
 @app.post("/convert/pdf-lock")
 async def lock_pdf(
     background_tasks: BackgroundTasks,
@@ -134,22 +141,14 @@ async def lock_pdf(
     try:
         reader = PdfReader(file.file)
         writer = PdfWriter()
-
         for page in reader.pages:
             writer.add_page(page)
-
         writer.encrypt(password)
-
         with open(output_path, "wb") as f:
             writer.write(f)
-
-        # ✅ cleanup after response
         background_tasks.add_task(os.remove, output_path)
-
         return FileResponse(output_path, filename="locked.pdf", media_type="application/pdf")
-
     except Exception as e:
-        # cleanup if created
         try:
             if os.path.exists(output_path):
                 os.remove(output_path)
@@ -157,9 +156,7 @@ async def lock_pdf(
             pass
         raise HTTPException(status_code=500, detail=str(e))
 
-
 # ------------------ PDF UNLOCK ------------------
-
 @app.post("/convert/pdf-unlock")
 async def unlock_pdf(
     background_tasks: BackgroundTasks,
@@ -173,18 +170,13 @@ async def unlock_pdf(
             ok = reader.decrypt(password)
             if ok == 0:
                 raise HTTPException(status_code=400, detail="Wrong password or corrupted PDF")
-
         writer = PdfWriter()
         for page in reader.pages:
             writer.add_page(page)
-
         with open(output_path, "wb") as f:
             writer.write(f)
-
         background_tasks.add_task(os.remove, output_path)
-
         return FileResponse(output_path, filename="unlocked.pdf", media_type="application/pdf")
-
     except HTTPException:
         try:
             if os.path.exists(output_path):
@@ -192,7 +184,6 @@ async def unlock_pdf(
         except:
             pass
         raise
-
     except Exception:
         try:
             if os.path.exists(output_path):
@@ -201,28 +192,20 @@ async def unlock_pdf(
             pass
         raise HTTPException(status_code=400, detail="Wrong password or corrupted PDF")
 
-
 # ------------------ PDF TO TEXT ------------------
-
 @app.post("/convert/pdf-to-text")
 async def pdf_to_text(file: UploadFile = File(...)):
     try:
         pdf_bytes = await file.read()
         reader = PdfReader(io.BytesIO(pdf_bytes))
-
         extracted_text = []
         for page in reader.pages:
             extracted_text.append(page.extract_text() or "")
-
-        text = "\n".join(extracted_text).strip()
-        return {"text": text}
-
+        return {"text": "\n".join(extracted_text).strip()}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
 # ------------------ PDF MERGE ------------------
-
 @app.post("/convert/pdf-merge")
 async def pdf_merge(
     background_tasks: BackgroundTasks,
@@ -245,15 +228,12 @@ async def pdf_merge(
             file_path = os.path.join(temp_dir, f"{uuid.uuid4()}_{f.filename}")
             with open(file_path, "wb") as buffer:
                 shutil.copyfileobj(f.file, buffer)
-
             merger.append(file_path)
 
         with open(output_path, "wb") as out:
             merger.write(out)
 
         merger.close()
-
-        # ✅ cleanup after response
         background_tasks.add_task(shutil.rmtree, temp_dir, ignore_errors=True)
 
         return FileResponse(output_path, filename="merged.pdf", media_type="application/pdf")
@@ -261,15 +241,13 @@ async def pdf_merge(
     except HTTPException:
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise
-
     except Exception as e:
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise HTTPException(status_code=500, detail=str(e))
-    
-    
+
+# ------------------ PDF TO WORD ------------------
 @app.post("/convert/pdf-to-word")
 async def pdf_to_word(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
-    # validate
     if file.content_type != "application/pdf":
         raise HTTPException(status_code=400, detail="Please upload a valid PDF file")
 
@@ -280,53 +258,40 @@ async def pdf_to_word(background_tasks: BackgroundTasks, file: UploadFile = File
     output_docx_path = os.path.join(temp_dir, "converted.docx")
 
     try:
-        # save uploaded pdf
         with open(input_pdf_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        # convert using pdf2docx
         cv = Converter(input_pdf_path)
         cv.convert(output_docx_path, start=0, end=None)
         cv.close()
 
-        # cleanup after response
         background_tasks.add_task(shutil.rmtree, temp_dir, ignore_errors=True)
-
         return FileResponse(
             output_docx_path,
             filename="converted.docx",
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         )
-
     except Exception as e:
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise HTTPException(status_code=500, detail=str(e))
-    
-   # ------------------ MEETING MOM ------------------
 
+# ------------------ MEETING MOM (demo) ------------------
 @app.post("/meeting-mom")
 async def generate_meeting_mom(
     video: Optional[UploadFile] = File(None),
     image: Optional[UploadFile] = File(None),
     transcript: Optional[str] = Form(None)
 ):
-    if not os.path.exists("uploads"):
-        os.makedirs("uploads")
     if not video and not image and not transcript:
         raise HTTPException(status_code=400, detail="Video, image or transcript required")
 
-    # 🔹 STEP 1: transcript decide
-    final_transcript = transcript or ""
-
-    if not final_transcript:
-        final_transcript = """
+    final_transcript = transcript or """
         Project discussion happened.
         Frontend completed.
         Backend APIs in progress.
         Release delayed by one week.
-        """
+    """
 
-    # 🔹 STEP 2: Generate MOM (mock – demo ready)
     mom_text = f"""
     MEETING TITLE: Project Status Meeting
 
@@ -344,17 +309,13 @@ async def generate_meeting_mom(
     ACTION ITEMS:
     - Backend APIs completion (Owner: Backend Team)
     - Testing start after backend completion
-    """
+    """.strip()
 
-    return {"mom": mom_text.strip()}
+    return {"mom": mom_text}
 
 # ------------------ PPT TO EXCEL ------------------
-
 @app.post("/convert/ppt-to-excel")
-async def ppt_to_excel(
-    background_tasks: BackgroundTasks,
-    file: UploadFile = File(...)
-):
+async def ppt_to_excel(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     if not file.filename.endswith((".ppt", ".pptx")):
         raise HTTPException(status_code=400, detail="Only PPT or PPTX files allowed")
 
@@ -365,24 +326,18 @@ async def ppt_to_excel(
     excel_path = os.path.join(temp_dir, "converted.xlsx")
 
     try:
-        # save ppt
         with open(ppt_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
         prs = Presentation(ppt_path)
-
         rows = []
         slide_no = 1
-
         for slide in prs.slides:
             for shape in slide.shapes:
-                if shape.has_text_frame:
+                if getattr(shape, "has_text_frame", False):
                     text = shape.text.strip()
                     if text:
-                        rows.append({
-                            "Slide No": slide_no,
-                            "Content": text
-                        })
+                        rows.append({"Slide No": slide_no, "Content": text})
             slide_no += 1
 
         if not rows:
@@ -392,13 +347,11 @@ async def ppt_to_excel(
         df.to_excel(excel_path, index=False)
 
         background_tasks.add_task(shutil.rmtree, temp_dir, ignore_errors=True)
-
         return FileResponse(
             excel_path,
             filename="ppt_content.xlsx",
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-
     except Exception as e:
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise HTTPException(status_code=500, detail=str(e))
