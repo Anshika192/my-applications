@@ -44,8 +44,7 @@ origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:3000",
-    # Add your deployed frontend URL here later (e.g. Vercel):
-    # "https://<your-frontend>.vercel.app",
+    "https://my-applications-mocha.vercel.app",  # ← add this
     "https://minapplications-frontend.onrender.com",
 ]
 app.add_middleware(
