@@ -16,15 +16,16 @@ from routers.pdf_to_image import router as pdf_image_router
 from routers.auth import router as auth_router
 from routers.user_data import router as user_data_router
 
-# ------------------ bootstrap: ensure volatile dirs exist ------------------
-NEEDED_DIRS = ["uploads", "output", "temp_uploads", "temp_mom"]
-for d in NEEDED_DIRS:
+# Create required dirs (Render's file system starts empty each deploy)
+for d in ["uploads", "output", "temp_uploads", "temp_mom"]:
     os.makedirs(d, exist_ok=True)
+
 
 # ------------------ app ------------------
 app = FastAPI()
 
-# Static mounts (avoid import-time crash)
+
+# Safe mounts (won't crash if dir is temporarily missing)
 app.mount("/uploads",      StaticFiles(directory="uploads",      check_dir=False), name="uploads")
 app.mount("/output",       StaticFiles(directory="output",       check_dir=False), name="output")
 app.mount("/temp_uploads", StaticFiles(directory="temp_uploads", check_dir=False), name="temp_uploads")
