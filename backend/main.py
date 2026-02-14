@@ -69,6 +69,11 @@ def health():
 def read_applications(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     return db.query(models.Application).offset(skip).limit(limit).all()
 
+# in backend/main.py (near other routes)
+@app.get("/")
+def root():
+    return {"status": "ok", "service": "my-applications"}
+
 @app.post("/applications", response_model=schemas.ApplicationRead)
 def create_application(application: schemas.ApplicationCreate, db: Session = Depends(get_db)):
     db_application = models.Application(**application.dict())
