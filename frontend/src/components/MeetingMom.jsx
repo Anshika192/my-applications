@@ -7,8 +7,8 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
   const [video, setVideo] = useState(null);
   const [image, setImage] = useState(null);
   const [transcript, setTranscript] = useState("");
-  const [fileKey, setFileKey] = useState(0);
 
+  const [fileKey, setFileKey] = useState(0); // force-remount file inputs
   const [loading, setLoading] = useState(false);
   const [mom, setMom] = useState("");
   const [msg, setMsg] = useState("");
@@ -17,42 +17,64 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
   const lastSuccessRef = useRef(0);
   const lastHistoryRef = useRef({ key: "", at: 0 });
 
-  // Refs to reset <input type="file">
+  // refs for file inputs
   const videoInputRef = useRef(null);
   const imageInputRef = useRef(null);
 
-  // Load history
+  // ---- Load history on mount (safe parse) ----
   useEffect(() => {
-    const saved = JSON.parse(localStorage.getItem("meetingMomHistory")) || [];
-    setHistory(saved);
+    try {
+      const raw = localStorage.getItem("meetingMomHistory");
+      const saved = raw ? JSON.parse(raw) : [];
+      setHistory(Array.isArray(saved) ? saved : []);
+    } catch {
+      setHistory([]);
+    }
   }, []);
 
-  // Save history
+  // ---- Save history (functional update to avoid stale state) ----
   const saveHistory = (data) => {
-      setHistory((prev) => {
-    const updated = [data, ...prev].slice(0, 10);
-    localStorage.setItem("meetingMomHistory", JSON.stringify(updated));
-     return updated;
-  });
+    setHistory((prev) => {
+      const updated = [data, ...prev].slice(0, 10);
+      localStorage.setItem("meetingMomHistory", JSON.stringify(updated));
+      return updated;
+    });
+  };
 
-  // ✅ CLEAR INPUTS (Top-level function, NOT inside try)
+  // ---- Clear only inputs (files, optionally transcript) ----
   const clearInputs = () => {
     setVideo(null);
     setImage(null);
-    // setTranscript(""); // uncomment if you also want to clear text
+    // setTranscript(""); // <- uncomment if you also want to clear text
     if (videoInputRef.current) videoInputRef.current.value = null;
     if (imageInputRef.current) imageInputRef.current.value = null;
-    setFileKey((k) => k + 1); // force remount
-    setMsg(""); 
-    localStorage.removeItem("meetingMomHistory");
-    setHistory([]);
+    setFileKey((k) => k + 1); // remount file inputs
+    setMsg("");
   };
 
+  // ---- Clear only history ----
+  const clearHistory = () => {
+    localStorage.removeItem("meetingMomHistory");
+    setHistory([]);
+    setMsg("History cleared");
+  };
+
+  // ---- Generate MOM ----
   const handleGenerate = async () => {
     if (!video && !image && !transcript.trim()) {
       setMsg("Please upload video, image, or paste transcript");
       return;
     }
+
+    // (Optional) free-plan friendly size checks
+    // if (video && video.size > 25 * 1024 * 1024) {
+    //   setMsg("Video is too large (max ~25 MB on free plan).");
+    //   return;
+    // }
+    // if (image && image.size > 10 * 1024 * 1024) {
+    //   setMsg("Image is too large (max ~10 MB).");
+    //   return;
+    // }
 
     setLoading(true);
     setMsg("");
@@ -64,7 +86,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
       if (image) formData.append("image", image);
       if (transcript.trim()) formData.append("transcript", transcript);
 
-      const API_URL = import.meta.env.VITE_API_URL;
+      const API_URL = import.meta.env.VITE_API_URL; // injected by Vercel at build time
       const res = await axios.post(`${API_URL}/meeting-mom`, formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
@@ -73,14 +95,14 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
       setMom(generated);
       setMsg("MOM generated successfully ✅");
 
-      // ✅ Immediately clear file inputs after success
+      // Clear file inputs after success (keep transcript for quick edits)
       clearInputs();
 
       if (!generated) {
         setMsg("No content generated, try again or paste transcript.");
       }
 
-      // History
+      // History snapshot
       const now = Date.now();
       const key = `${video?.name || ""}__${image?.name || ""}__${transcript
         .trim()
@@ -120,6 +142,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
     }
   };
 
+  // ---- Download PDF ----
   const downloadPDF = () => {
     if (!mom) return;
     const doc = new jsPDF();
@@ -209,6 +232,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
 
       {/* Generate Button */}
       <button
+        type="button"
         onClick={handleGenerate}
         disabled={loading}
         style={{
@@ -225,7 +249,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
         {loading ? "Generating..." : "Generate MOM"}
       </button>
 
-      {/* Msg */}
+      {/* Message */}
       {msg && (
         <div
           style={{
@@ -255,6 +279,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
             }}
           />
           <button
+            type="button"
             onClick={downloadPDF}
             style={{
               width: "100%",
@@ -304,13 +329,21 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
         </div>
       )}
 
-      {/* ✅ Clear Inputs Button */}
+      {/* Clear buttons */}
       <button
         type="button"
         onClick={clearInputs}
         style={{ marginTop: 10, width: "100%", padding: 10 }}
       >
         Clear Inputs
+      </button>
+
+      <button
+        type="button"
+        onClick={clearHistory}
+        style={{ marginTop: 8, width: "100%", padding: 10, background: "#f1f5f9" }}
+      >
+        Clear History
       </button>
     </ToolLayout>
   );
