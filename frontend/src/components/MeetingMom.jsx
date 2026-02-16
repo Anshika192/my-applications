@@ -13,32 +13,36 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
   const [mom, setMom] = useState("");
   const [msg, setMsg] = useState("");
 
-  // ✅ NEW: History like PdfWatermark
   const [history, setHistory] = useState([]);
-
-  // ✅ prevent multiple recent logs quickly
   const lastSuccessRef = useRef(0);
-
-  // ✅ prevent duplicate history spam
   const lastHistoryRef = useRef({ key: "", at: 0 });
 
-  
-  // 👉 Add refs to reset <input type="file">
+  // Refs to reset <input type="file">
   const videoInputRef = useRef(null);
   const imageInputRef = useRef(null);
 
-
-  // ✅ load history on mount
+  // Load history
   useEffect(() => {
     const saved = JSON.parse(localStorage.getItem("meetingMomHistory")) || [];
     setHistory(saved);
   }, []);
 
-  // ✅ save history (keep last 10)
+  // Save history
   const saveHistory = (data) => {
     const updated = [data, ...history].slice(0, 10);
     setHistory(updated);
     localStorage.setItem("meetingMomHistory", JSON.stringify(updated));
+  };
+
+  // ✅ CLEAR INPUTS (Top-level function, NOT inside try)
+  const clearInputs = () => {
+    setVideo(null);
+    setImage(null);
+    // setTranscript(""); // uncomment if you also want to clear text
+    if (videoInputRef.current) videoInputRef.current.value = null;
+    if (imageInputRef.current) imageInputRef.current.value = null;
+    setFileKey((k) => k + 1); // force remount
+    setMsg("");
   };
 
   const handleGenerate = async () => {
@@ -57,42 +61,29 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
       if (image) formData.append("image", image);
       if (transcript.trim()) formData.append("transcript", transcript);
 
-      
-    const API_URL = import.meta.env.VITE_API_URL; // read from .env
-    const res = await axios.post(`${API_URL}/meeting-mom`, formData, {
-          headers: { "Content-Type": "multipart/form-data" },
-  });
-
+      const API_URL = import.meta.env.VITE_API_URL;
+      const res = await axios.post(`${API_URL}/meeting-mom`, formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
 
       const generated = res?.data?.mom || "";
       setMom(generated);
-
-      // ✅ success msg
       setMsg("MOM generated successfully ✅");
 
-      
-      // ✅ Clear inputs here (AFTER success)
-     const clearInputs = () => {
-  setVideo(null);
-  setImage(null);
-  // setTranscript(""); // uncomment if you want to clear text too
-  if (videoInputRef.current) videoInputRef.current.value = null; // extra safety
-  if (imageInputRef.current) imageInputRef.current.value = null;
-  setFileKey(k => k + 1); 
-  setMsg("");
-     };
+      // ✅ Immediately clear file inputs after success
+      clearInputs();
 
-      if (!generated) setMsg("No content generated, try again or paste transcript.");
+      if (!generated) {
+        setMsg("No content generated, try again or paste transcript.");
+      }
 
-      // ✅ HISTORY: only after success (like PdfWatermark)
+      // History
       const now = Date.now();
-      const key = `${video?.name || ""}__${image?.name || ""}__${transcript.trim().slice(0, 50)}`;
+      const key = `${video?.name || ""}__${image?.name || ""}__${transcript
+        .trim()
+        .slice(0, 50)}`;
 
-      // avoid same entry spam within 1.2s
-      if (
-        key !== lastHistoryRef.current.key ||
-        now - lastHistoryRef.current.at > 1200
-      ) {
+      if (key !== lastHistoryRef.current.key || now - lastHistoryRef.current.at > 1200) {
         saveHistory({
           time: new Date().toLocaleString(),
           videoName: video?.name || "—",
@@ -107,15 +98,20 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
         lastHistoryRef.current = { key, at: now };
       }
 
-      // ✅ RECENT ACTIVITY throttle like PdfWatermark
       if (now - lastSuccessRef.current > 800) {
         onSuccess?.("meeting-mom", "Meeting MOM Generator");
         lastSuccessRef.current = now;
       }
     } catch (err) {
       console.error(err);
-      const detail = err?.response?.data?.detail || err?.message || "Failed to generate MOM ";
-      setMsg (`❌ ${detail}`);
+      const status = err?.response?.status;
+      const body = err?.response?.data;
+      const detail =
+        body?.detail ||
+        (typeof body === "string" ? body : "") ||
+        err?.message ||
+        "Failed to generate MOM";
+      setMsg(`❌ ${status ? status + " • " : ""}${detail}`);
     } finally {
       setLoading(false);
     }
@@ -123,12 +119,10 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
 
   const downloadPDF = () => {
     if (!mom) return;
-
     const doc = new jsPDF();
     const lines = doc.splitTextToSize(mom, 180);
     doc.text(lines, 10, 10);
-    doc.save(`meeting_mom_${new
-      Date().toISOString().slice(0,10)}.pdf`); 
+    doc.save(`meeting_mom_${new Date().toISOString().slice(0, 10)}.pdf`);
   };
 
   return (
@@ -143,7 +137,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
           Upload Meeting Video (optional)
         </label>
         <input
-         key={`v-${fileKey}`}
+          key={`v-${fileKey}`}
           ref={videoInputRef}
           type="file"
           accept="video/*"
@@ -199,7 +193,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
             setTranscript(e.target.value);
             setMsg("");
           }}
-          placeholder="Paste transcript here (or upload meeting vedio/screenshot)."
+          placeholder="Paste transcript here (or upload meeting video/screenshot)."
           style={{
             width: "100%",
             padding: 10,
@@ -257,7 +251,6 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
               resize: "vertical",
             }}
           />
-
           <button
             onClick={downloadPDF}
             style={{
@@ -277,7 +270,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
         </div>
       )}
 
-      {/* ✅ History (same idea as PdfWatermark) */}
+      {/* History */}
       {history.length > 0 && (
         <div
           style={{
@@ -307,13 +300,15 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
           </ul>
         </div>
       )}
-       <button
-  type="button"        
-  onClick={clearInputs}
-  style={{ marginTop: 10, width: "100%", padding: 10 }}
->
-  Clear Inputs
-</button>
+
+      {/* ✅ Clear Inputs Button */}
+      <button
+        type="button"
+        onClick={clearInputs}
+        style={{ marginTop: 10, width: "100%", padding: 10 }}
+      >
+        Clear Inputs
+      </button>
     </ToolLayout>
   );
 };
