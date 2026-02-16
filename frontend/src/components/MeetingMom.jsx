@@ -7,6 +7,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
   const [video, setVideo] = useState(null);
   const [image, setImage] = useState(null);
   const [transcript, setTranscript] = useState("");
+  const [fileKey, setFileKey] = useState(0);
 
   const [loading, setLoading] = useState(false);
   const [mom, setMom] = useState("");
@@ -71,11 +72,15 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
 
       
       // ✅ Clear inputs here (AFTER success)
-      setVideo(null);
-      setImage(null);
-      if (videoInputRef.current) videoInputRef.current.value = "";
-      if (imageInputRef.current) imageInputRef.current.value = "";
-
+     const clearInputs = () => {
+  setVideo(null);
+  setImage(null);
+  // setTranscript(""); // uncomment if you want to clear text too
+  if (videoInputRef.current) videoInputRef.current.value = null; // extra safety
+  if (imageInputRef.current) imageInputRef.current.value = null;
+  setFileKey(k => k + 1); 
+  setMsg("");
+     };
 
       if (!generated) setMsg("No content generated, try again or paste transcript.");
 
@@ -138,6 +143,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
           Upload Meeting Video (optional)
         </label>
         <input
+         key={`v-${fileKey}`}
           ref={videoInputRef}
           type="file"
           accept="video/*"
@@ -160,6 +166,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
           Upload Screenshot (OCR)
         </label>
         <input
+          key={`i-${fileKey}`}
           ref={imageInputRef}
           type="file"
           accept="image/*"
@@ -300,14 +307,9 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
           </ul>
         </div>
       )}
-        <button
-  onClick={() => {
-    setVideo(null);
-    setImage(null);
-    // setTranscript(""); // only if you want
-    if (videoInputRef.current) videoInputRef.current.value = "";
-    if (imageInputRef.current) imageInputRef.current.value = "";
-  }}
+       <button
+  type="button"        
+  onClick={clearInputs}
   style={{ marginTop: 10, width: "100%", padding: 10 }}
 >
   Clear Inputs
