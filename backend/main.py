@@ -5,6 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import os, io, uuid, shutil
+import google.generativeai as genai
 
 from PyPDF2 import PdfMerger, PdfReader, PdfWriter
 from pdf2docx import Converter
@@ -15,6 +16,15 @@ import models, schemas, database
 from routers.pdf_to_image import router as pdf_image_router
 from routers.auth import router as auth_router
 from routers.user_data import router as user_data_router
+
+
+
+# --- Gemini config ---
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+genai.configure(api_key=GEMINI_API_KEY)
+if not GEMINI_API_KEY:
+    print("[WARN] GEMINI_API_KEY not set. /ai/mom-generator will fail until configured.")
+
 
 # Create required dirs (Render's file system starts empty each deploy)
 for d in ["uploads", "output", "temp_uploads", "temp_mom"]:
@@ -359,4 +369,36 @@ async def ppt_to_excel(background_tasks: BackgroundTasks, file: UploadFile = Fil
         )
     except Exception as e:
         shutil.rmtree(temp_dir, ignore_errors=True)
+        raise HTTPException(status_code=500, detail=str(e))
+    
+    
+@app.post("/ai/mom-generator")
+async def ai_mom_generator(transcript: str = Form(...)):
+    if not transcript.strip():
+        raise HTTPException(status_code=400, detail="Transcript is required")
+
+    try:
+        prompt = f"""
+        You are an expert assistant. Convert the following meeting transcript
+        into a clean structured Minutes of Meeting (MOM).
+
+        Transcript:
+        {transcript}
+
+        STRICT FORMAT:
+        MEETING TITLE:
+        AGENDA:
+        SUMMARY:
+        KEY POINTS:
+        DECISIONS:
+        RISKS:
+        ACTION ITEMS (with owner & deadline):
+        """
+
+        model = genai.GenerativeModel("gemini-pro")
+        response = model.generate_content(prompt)
+
+        return {"mom": response.text}
+
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
