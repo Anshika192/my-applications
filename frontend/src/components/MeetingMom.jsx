@@ -21,6 +21,12 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
   // ✅ prevent duplicate history spam
   const lastHistoryRef = useRef({ key: "", at: 0 });
 
+  
+  // 👉 Add refs to reset <input type="file">
+  const videoInputRef = useRef(null);
+  const imageInputRef = useRef(null);
+
+
   // ✅ load history on mount
   useEffect(() => {
     const saved = JSON.parse(localStorage.getItem("meetingMomHistory")) || [];
@@ -62,6 +68,16 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
 
       // ✅ success msg
       setMsg("MOM generated successfully ✅");
+
+      
+      // ✅ Clear inputs here (AFTER success)
+      setVideo(null);
+      setImage(null);
+      if (videoInputRef.current) videoInputRef.current.value = "";
+      if (imageInputRef.current) imageInputRef.current.value = "";
+
+
+      if (!generated) setMsg("No content generated, try again or paste transcript.");
 
       // ✅ HISTORY: only after success (like PdfWatermark)
       const now = Date.now();
@@ -122,6 +138,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
           Upload Meeting Video (optional)
         </label>
         <input
+          ref={videoInputRef}
           type="file"
           accept="video/*"
           onChange={(e) => {
@@ -143,6 +160,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
           Upload Screenshot (OCR)
         </label>
         <input
+          ref={imageInputRef}
           type="file"
           accept="image/*"
           onChange={(e) => {
@@ -282,6 +300,18 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
           </ul>
         </div>
       )}
+        <button
+  onClick={() => {
+    setVideo(null);
+    setImage(null);
+    // setTranscript(""); // only if you want
+    if (videoInputRef.current) videoInputRef.current.value = "";
+    if (imageInputRef.current) imageInputRef.current.value = "";
+  }}
+  style={{ marginTop: 10, width: "100%", padding: 10 }}
+>
+  Clear Inputs
+</button>
     </ToolLayout>
   );
 };
