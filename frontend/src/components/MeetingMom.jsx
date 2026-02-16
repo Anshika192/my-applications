@@ -50,9 +50,12 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
       if (image) formData.append("image", image);
       if (transcript.trim()) formData.append("transcript", transcript);
 
-      const res = await axios.post("http://localhost:8000/meeting-mom", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      
+    const API_URL = import.meta.env.VITE_API_URL; // read from .env
+    const res = await axios.post(`${API_URL}/meeting-mom`, formData, {
+          headers: { "Content-Type": "multipart/form-data" },
+  });
+
 
       const generated = res?.data?.mom || "";
       setMom(generated);
@@ -90,7 +93,8 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
       }
     } catch (err) {
       console.error(err);
-      setMsg("Failed to generate MOM ❌");
+      const detail = err?.response?.data?.detail || err?.message || "Failed to generate MOM ";
+      setMsg (`❌ ${detail}`);
     } finally {
       setLoading(false);
     }
