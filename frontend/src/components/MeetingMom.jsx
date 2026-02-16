@@ -106,7 +106,8 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
     const doc = new jsPDF();
     const lines = doc.splitTextToSize(mom, 180);
     doc.text(lines, 10, 10);
-    doc.save("meeting_mom.pdf");
+    doc.save(`meeting_mom_${new
+      Date().toISOString().slice(0,10)}.pdf`); 
   };
 
   return (
@@ -173,7 +174,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
             setTranscript(e.target.value);
             setMsg("");
           }}
-          placeholder="Paste transcript here..."
+          placeholder="Paste transcript here (or upload meeting vedio/screenshot)."
           style={{
             width: "100%",
             padding: 10,
