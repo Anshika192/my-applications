@@ -29,10 +29,11 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
 
   // Save history
   const saveHistory = (data) => {
-    const updated = [data, ...history].slice(0, 10);
-    setHistory(updated);
+      setHistory((prev) => {
+    const updated = [data, ...prev].slice(0, 10);
     localStorage.setItem("meetingMomHistory", JSON.stringify(updated));
-  };
+     return updated;
+  });
 
   // ✅ CLEAR INPUTS (Top-level function, NOT inside try)
   const clearInputs = () => {
@@ -42,7 +43,9 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
     if (videoInputRef.current) videoInputRef.current.value = null;
     if (imageInputRef.current) imageInputRef.current.value = null;
     setFileKey((k) => k + 1); // force remount
-    setMsg("");
+    setMsg(""); 
+    localStorage.removeItem("meetingMomHistory");
+    setHistory([]);
   };
 
   const handleGenerate = async () => {
