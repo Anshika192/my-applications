@@ -19,3 +19,4 @@ pydantic[email]
 python-pptx
 pandas
 openpyxl
+google-generativeai==0.5.0
