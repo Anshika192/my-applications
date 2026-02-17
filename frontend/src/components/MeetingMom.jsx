@@ -1,18 +1,26 @@
 import React, { useEffect, useRef, useState } from "react";
 import axios from "axios";
 import jsPDF from "jspdf";
-import ToolLayout from "../components/ToolLayout";
+import ToolLayout from "./ToolLayout";
 
 const MeetingMom = ({ setActiveTab, onSuccess }) => {
+  // Files (classic mode)
   const [video, setVideo] = useState(null);
   const [image, setImage] = useState(null);
+
+  // Transcript (both modes)
   const [transcript, setTranscript] = useState("");
 
+  // AI toggle
+  const [useAI, setUseAI] = useState(true);
+
+  // UI state
   const [fileKey, setFileKey] = useState(0); // force-remount file inputs
   const [loading, setLoading] = useState(false);
   const [mom, setMom] = useState("");
   const [msg, setMsg] = useState("");
 
+  // History
   const [history, setHistory] = useState([]);
   const lastSuccessRef = useRef(0);
   const lastHistoryRef = useRef({ key: "", at: 0 });
@@ -59,19 +67,54 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
     setMsg("History cleared");
   };
 
+  // ---- Copy MOM ----
+  const copyMom = async () => {
+    if (!mom) return;
+    try {
+      await navigator.clipboard.writeText(mom);
+      setMsg("Copied to clipboard ✅");
+    } catch {
+      setMsg("Could not copy to clipboard");
+    }
+  };
+
+  // ---- Download PDF ----
+  const downloadPDF = () => {
+    if (!mom) return;
+    const doc = new jsPDF();
+    const lines = doc.splitTextToSize(mom, 180);
+    doc.text(lines, 10, 10);
+    doc.save(`meeting_mom_${new Date().toISOString().slice(0, 10)}.pdf`);
+  };
+
   // ---- Generate MOM ----
   const handleGenerate = async () => {
-    if (!video && !image && !transcript.trim()) {
-      setMsg("Please upload video, image, or paste transcript");
+    const API_URL = import.meta.env.VITE_API_URL;
+
+    if (!API_URL) {
+      setMsg("❌ Missing VITE_API_URL in environment.");
       return;
     }
 
-    // (Optional) free-plan friendly size checks
-    // if (video && video.size > 25 * 1024 * 1024) {
+    // Basic validation
+    if (useAI) {
+      if (!transcript.trim()) {
+        setMsg("Please paste transcript for AI mode.");
+        return;
+      }
+    } else {
+      if (!video && !image && !transcript.trim()) {
+        setMsg("Please upload video, image, or paste transcript");
+        return;
+      }
+    }
+
+    // Optional free-plan file size guards (uncomment if needed)
+    // if (!useAI && video && video.size > 25 * 1024 * 1024) {
     //   setMsg("Video is too large (max ~25 MB on free plan).");
     //   return;
     // }
-    // if (image && image.size > 10 * 1024 * 1024) {
+    // if (!useAI && image && image.size > 10 * 1024 * 1024) {
     //   setMsg("Image is too large (max ~10 MB).");
     //   return;
     // }
@@ -81,36 +124,50 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
     setMom("");
 
     try {
-      const formData = new FormData();
-      if (video) formData.append("video", video);
-      if (image) formData.append("image", image);
-      if (transcript.trim()) formData.append("transcript", transcript);
+      let generated = "";
 
-      const API_URL = import.meta.env.VITE_API_URL; // injected by Vercel at build time
-      const res = await axios.post(`${API_URL}/meeting-mom`, formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      if (useAI) {
+        // ✅ AI route expects x-www-form-urlencoded with 'transcript'
+        const data = new URLSearchParams();
+        data.set("transcript", transcript.trim());
 
-      const generated = res?.data?.mom || "";
+        const res = await axios.post(`${API_URL}/ai/mom-generator`, data, {
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          timeout: 45000, // ms
+        });
+
+        generated = res?.data?.mom || "";
+      } else {
+        // Classic route supports files + transcript (multipart/form-data)
+        const formData = new FormData();
+        if (video) formData.append("video", video);
+        if (image) formData.append("image", image);
+        if (transcript.trim()) formData.append("transcript", transcript);
+
+        const res = await axios.post(`${API_URL}/meeting-mom`, formData, {
+          headers: { "Content-Type": "multipart/form-data" },
+          timeout: 90000, // might be longer for files
+        });
+
+        generated = res?.data?.mom || "";
+      }
+
       setMom(generated);
-      setMsg("MOM generated successfully ✅");
+      setMsg(generated ? "MOM generated successfully ✅" : "No content generated, try again.");
 
       // Clear file inputs after success (keep transcript for quick edits)
       clearInputs();
 
-      if (!generated) {
-        setMsg("No content generated, try again or paste transcript.");
-      }
-
       // History snapshot
       const now = Date.now();
-      const key = `${video?.name || ""}__${image?.name || ""}__${transcript
+      const key = `${useAI ? "AI" : "Classic"}__${video?.name || ""}__${image?.name || ""}__${transcript
         .trim()
         .slice(0, 50)}`;
 
       if (key !== lastHistoryRef.current.key || now - lastHistoryRef.current.at > 1200) {
         saveHistory({
           time: new Date().toLocaleString(),
+          mode: useAI ? "AI" : "Classic",
           videoName: video?.name || "—",
           imageName: image?.name || "—",
           transcriptPreview: transcript.trim()
@@ -142,75 +199,95 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
     }
   };
 
-  // ---- Download PDF ----
-  const downloadPDF = () => {
-    if (!mom) return;
-    const doc = new jsPDF();
-    const lines = doc.splitTextToSize(mom, 180);
-    doc.text(lines, 10, 10);
-    doc.save(`meeting_mom_${new Date().toISOString().slice(0, 10)}.pdf`);
-  };
-
   return (
     <ToolLayout
       title="Meeting MOM Generator"
       description="Upload meeting video/screenshot or paste transcript to generate Minutes of Meeting"
       onBack={() => setActiveTab("dashboard")}
     >
-      {/* Upload Video */}
-      <div style={{ marginBottom: 15 }}>
-        <label style={{ display: "block", marginBottom: 6, fontSize: 14 }}>
-          Upload Meeting Video (optional)
+      {/* AI Toggle */}
+      <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
+        <label style={{ fontWeight: 700 }}>
+          <input
+            type="checkbox"
+            checked={useAI}
+            onChange={(e) => {
+              setUseAI(e.target.checked);
+              setMsg("");
+              setMom("");
+            }}
+            style={{ marginRight: 8 }}
+          />
+          Use AI (Beta)
         </label>
-        <input
-          key={`v-${fileKey}`}
-          ref={videoInputRef}
-          type="file"
-          accept="video/*"
-          onChange={(e) => {
-            setVideo(e.target.files?.[0] || null);
-            setMsg("");
-          }}
-          style={{ width: "100%" }}
-        />
-        {video?.name && (
-          <div style={{ marginTop: 6, fontSize: 12, opacity: 0.7 }}>
-            Selected: <b>{video.name}</b>
-          </div>
-        )}
+        <div style={{ fontSize: 12, opacity: 0.7 }}>
+          {useAI
+            ? "Uses /ai/mom-generator (transcript required)"
+            : "Uses /meeting-mom (files or transcript allowed)"}
+        </div>
       </div>
 
-      {/* Upload Image */}
-      <div style={{ marginBottom: 15 }}>
-        <label style={{ display: "block", marginBottom: 6, fontSize: 14 }}>
-          Upload Screenshot (OCR)
-        </label>
-        <input
-          key={`i-${fileKey}`}
-          ref={imageInputRef}
-          type="file"
-          accept="image/*"
-          onChange={(e) => {
-            setImage(e.target.files?.[0] || null);
-            setMsg("");
-          }}
-          style={{ width: "100%" }}
-        />
-        {image?.name && (
-          <div style={{ marginTop: 6, fontSize: 12, opacity: 0.7 }}>
-            Selected: <b>{image.name}</b>
-          </div>
-        )}
-      </div>
+      {/* Upload Video (classic only) */}
+      {!useAI && (
+        <div style={{ marginBottom: 15 }}>
+          <label style={{ display: "block", marginBottom: 6, fontSize: 14 }}>
+            Upload Meeting Video (optional)
+          </label>
+          <input
+            key={`v-${fileKey}`}
+            ref={videoInputRef}
+            type="file"
+            accept="video/*"
+            onChange={(e) => {
+              setVideo(e.target.files?.[0] || null);
+              setMsg("");
+            }}
+            style={{ width: "100%" }}
+          />
+          {video?.name && (
+            <div style={{ marginTop: 6, fontSize: 12, opacity: 0.7 }}>
+              Selected: <b>{video.name}</b>
+            </div>
+          )}
+        </div>
+      )}
 
-      <div style={{ textAlign: "center", margin: "12px 0", opacity: 0.7, fontWeight: 700 }}>
-        OR
-      </div>
+      {/* Upload Image (classic only) */}
+      {!useAI && (
+        <div style={{ marginBottom: 15 }}>
+          <label style={{ display: "block", marginBottom: 6, fontSize: 14 }}>
+            Upload Screenshot (OCR)
+          </label>
+          <input
+            key={`i-${fileKey}`}
+            ref={imageInputRef}
+            type="file"
+            accept="image/*"
+            onChange={(e) => {
+              setImage(e.target.files?.[0] || null);
+              setMsg("");
+            }}
+            style={{ width: "100%" }}
+          />
+          {image?.name && (
+            <div style={{ marginTop: 6, fontSize: 12, opacity: 0.7 }}>
+              Selected: <b>{image.name}</b>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Divider */}
+      {!useAI && (
+        <div style={{ textAlign: "center", margin: "12px 0", opacity: 0.7, fontWeight: 700 }}>
+          OR
+        </div>
+      )}
 
       {/* Transcript */}
       <div style={{ marginBottom: 15 }}>
         <label style={{ display: "block", marginBottom: 6, fontSize: 14 }}>
-          Paste Meeting Transcript
+          Paste Meeting Transcript {useAI ? "(required for AI)" : ""}
         </label>
         <textarea
           rows={5}
@@ -219,7 +296,11 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
             setTranscript(e.target.value);
             setMsg("");
           }}
-          placeholder="Paste transcript here (or upload meeting video/screenshot)."
+          placeholder={
+            useAI
+              ? "Paste transcript here (AI requires transcript)."
+              : "Paste transcript here (or upload meeting video/screenshot)."
+          }
           style={{
             width: "100%",
             padding: 10,
@@ -230,7 +311,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
         />
       </div>
 
-      {/* Generate Button */}
+      {/* Generate */}
       <button
         type="button"
         onClick={handleGenerate}
@@ -278,23 +359,40 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
               resize: "vertical",
             }}
           />
-          <button
-            type="button"
-            onClick={downloadPDF}
-            style={{
-              width: "100%",
-              marginTop: 12,
-              padding: 12,
-              background: "#16a34a",
-              color: "#fff",
-              border: "none",
-              borderRadius: 6,
-              cursor: "pointer",
-              fontWeight: 700,
-            }}
-          >
-            Download PDF
-          </button>
+          <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+            <button
+              type="button"
+              onClick={downloadPDF}
+              style={{
+                flex: 1,
+                padding: 12,
+                background: "#16a34a",
+                color: "#fff",
+                border: "none",
+                borderRadius: 6,
+                cursor: "pointer",
+                fontWeight: 700,
+              }}
+            >
+              Download PDF
+            </button>
+            <button
+              type="button"
+              onClick={copyMom}
+              style={{
+                flex: 1,
+                padding: 12,
+                background: "#0ea5e9",
+                color: "#fff",
+                border: "none",
+                borderRadius: 6,
+                cursor: "pointer",
+                fontWeight: 700,
+              }}
+            >
+              Copy MOM
+            </button>
+          </div>
         </div>
       )}
 
@@ -314,6 +412,17 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
             {history.map((h, i) => (
               <li key={i} style={{ marginBottom: 10 }}>
                 <div style={{ marginBottom: 4 }}>
+                  <span
+                    style={{
+                      padding: "2px 6px",
+                      borderRadius: 4,
+                      background: h.mode === "AI" ? "#eef2ff" : "#ecfeff",
+                      marginRight: 8,
+                      fontSize: 12,
+                    }}
+                  >
+                    {h.mode}
+                  </span>
                   <b>Video:</b> {h.videoName} &nbsp; | &nbsp; <b>Image:</b> {h.imageName}
                 </div>
                 <div style={{ marginBottom: 4 }}>
