@@ -417,9 +417,8 @@ Rules:
             )
         except asyncio.TimeoutError:
             raise HTTPException(status_code=504, detail="AI generation timed out. Try again.")
-        
 
-
+        # ---- YAHAN par add karo: text extract + unescape ----
         text = (getattr(resp, "text", None) or "").strip()
         text = html.unescape(text)  # &amp; → & (aur baaki entities bhi safe ho jaati hain)
 
@@ -432,4 +431,3 @@ Rules:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-``
