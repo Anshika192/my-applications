@@ -19,7 +19,32 @@ from routers.pdf_to_image import router as pdf_image_router
 from routers.auth import router as auth_router
 from routers.user_data import router as user_data_router
 
-
+def get_supported_model():
+    """
+    Try a few model identifiers in order.
+    Some environments require `models/` prefix,
+    some have 1.5-flash-8b available, etc.
+    """
+    candidates = [
+        "gemini-1.5-flash",
+        "models/gemini-1.5-flash",
+        "gemini-1.5-flash-8b",
+        "models/gemini-1.5-flash-8b",
+        "gemini-1.5-pro",
+        "models/gemini-1.5-pro",
+    ]
+    last_err = None
+    for name in candidates:
+        try:
+            return genai.GenerativeModel(name)
+        except Exception as e:
+            last_err = e
+            continue
+    # If none worked, raise a clean, actionable error
+    raise HTTPException(
+        status_code=500,
+        detail=f"Gemini model not available. Last error: {last_err}"
+    )
 
 # --- Gemini config ---
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -56,8 +81,9 @@ origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:3000",
-    "https://my-applications-mocha.vercel.app",  # ← add this
+    "https://my-applications-mocha.vercel.app",
     "https://minapplications-frontend.onrender.com",
+    "https://my-applications-mnstsyh9g-anshika192s-projects.vercel.app",  # <-- new exact domain
 ]
 app.add_middleware(
     CORSMiddleware,
@@ -404,10 +430,8 @@ Rules:
 """.strip()
 
     try:
-        # 👉 Use a current model
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        # If needed in your env:
-        # model = genai.GenerativeModel("models/gemini-1.5-flash")
+        # Auto-fallback to a supported model for your key/region
+        model = get_supported_model()
 
         loop = asyncio.get_running_loop()
         try:
@@ -418,9 +442,9 @@ Rules:
         except asyncio.TimeoutError:
             raise HTTPException(status_code=504, detail="AI generation timed out. Try again.")
 
-        # ---- YAHAN par add karo: text extract + unescape ----
+        # Extract and normalize any HTML entities (&amp; → &)
         text = (getattr(resp, "text", None) or "").strip()
-        text = html.unescape(text)  # &amp; → & (aur baaki entities bhi safe ho jaati hain)
+        text = html.unescape(text)
 
         if not text:
             raise HTTPException(status_code=502, detail="AI returned empty response")
