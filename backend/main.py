@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 import os, io, uuid, shutil
 import google.generativeai as genai
+import asyncio
 
 from PyPDF2 import PdfMerger, PdfReader, PdfWriter
 from pdf2docx import Converter
@@ -374,31 +375,70 @@ async def ppt_to_excel(background_tasks: BackgroundTasks, file: UploadFile = Fil
     
 @app.post("/ai/mom-generator")
 async def ai_mom_generator(transcript: str = Form(...)):
-    if not transcript.strip():
+    if not os.getenv("GEMINI_API_KEY"):
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured on server.")
+    if not transcript or not transcript.strip():
         raise HTTPException(status_code=400, detail="Transcript is required")
 
+    # Prompt (use plain '&', not HTML entity)
+    prompt = f"""
+You are an expert corporate assistant. Convert the following meeting transcript
+into a clean, structured Minutes of Meeting (MOM). Be concise, factual, and avoid inventing details.
+
+Transcript:
+\"\"\"{transcript.strip()}\"\"\"
+
+STRICT FORMAT (use these exact headers):
+MEETING TITLE:
+AGENDA:
+SUMMARY:
+KEY POINTS:
+DECISIONS:
+RISKS:
+ACTION ITEMS (with owner & deadline):
+
+Rules:
+- Use bullet points where appropriate
+- Clear owners and explicit dates
+- No extra commentary outside these sections
+""".strip()
+
     try:
-        prompt = f"""
-        You are an expert assistant. Convert the following meeting transcript
-        into a clean structured Minutes of Meeting (MOM).
+        # 👉 Use a current model (gemini-pro is retired for generateContent)
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        # If your SDK expects the prefix in some environments, use:
+        # model = genai.GenerativeModel("models/gemini-1.5-flash")
 
-        Transcript:
-        {transcript}
+        # Run the blocking SDK call off the event loop with a timeout
+        loop = asyncio.get_running_loop()
+        try:
+            resp = await asyncio.wait_for(
+                loop.run_in_executor(None, model.generate_content, prompt),
+                timeout=30,
+            )
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=504, detail="AI generation timed out. Try again.")
 
-        STRICT FORMAT:
-        MEETING TITLE:
-        AGENDA:
-        SUMMARY:
-        KEY POINTS:
-        DECISIONS:
-        RISKS:
-        ACTION ITEMS (with owner & deadline):
-        """
+        text = (getattr(resp, "text", None) or "").strip()
+        if not text:
+            raise HTTPException(status_code=502, detail="AI returned empty response")
 
-        model = genai.GenerativeModel("gemini-pro")
-        response = model.generate_content(prompt)
+        return {"mom": text}
 
-        return {"mom": response.text}
+    except HTTPException:
+        raise
+    except Exception as e:
+        # e.g., quota, model name, or key issues
+        raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/ai/models")
+def ai_models():
+    try:
+        models = [
+            m.name
+            for m in genai.list_models()
+            if "generateContent" in getattr(m, "supported_generation_methods", [])
+        ]
+        return {"models": models}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
