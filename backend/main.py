@@ -8,6 +8,7 @@ import os, io, uuid, shutil
 import google.generativeai as genai
 import asyncio
 
+
 from PyPDF2 import PdfMerger, PdfReader, PdfWriter
 from pdf2docx import Converter
 from pptx import Presentation
@@ -372,7 +373,6 @@ async def ppt_to_excel(background_tasks: BackgroundTasks, file: UploadFile = Fil
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise HTTPException(status_code=500, detail=str(e))
     
-    
 @app.post("/ai/mom-generator")
 async def ai_mom_generator(transcript: str = Form(...)):
     if not os.getenv("GEMINI_API_KEY"):
@@ -404,12 +404,11 @@ Rules:
 """.strip()
 
     try:
-        # 👉 Use a current model (gemini-pro is retired for generateContent)
+        # 👉 Use a current model
         model = genai.GenerativeModel("gemini-1.5-flash")
-        # If your SDK expects the prefix in some environments, use:
+        # If needed in your env:
         # model = genai.GenerativeModel("models/gemini-1.5-flash")
 
-        # Run the blocking SDK call off the event loop with a timeout
         loop = asyncio.get_running_loop()
         try:
             resp = await asyncio.wait_for(
@@ -418,8 +417,12 @@ Rules:
             )
         except asyncio.TimeoutError:
             raise HTTPException(status_code=504, detail="AI generation timed out. Try again.")
+        
+
 
         text = (getattr(resp, "text", None) or "").strip()
+        text = html.unescape(text)  # &amp; → & (aur baaki entities bhi safe ho jaati hain)
+
         if not text:
             raise HTTPException(status_code=502, detail="AI returned empty response")
 
@@ -428,17 +431,5 @@ Rules:
     except HTTPException:
         raise
     except Exception as e:
-        # e.g., quota, model name, or key issues
         raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/ai/models")
-def ai_models():
-    try:
-        models = [
-            m.name
-            for m in genai.list_models()
-            if "generateContent" in getattr(m, "supported_generation_methods", [])
-        ]
-        return {"models": models}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+``
