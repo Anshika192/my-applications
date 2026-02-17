@@ -1,7 +1,29 @@
 import React, { useEffect, useRef, useState } from "react";
 import axios from "axios";
 import jsPDF from "jspdf";
-import ToolLayout from "./ToolLayout";
+import ToolLayout from "./ToolLayout"; // adjust if ToolLayout is elsewhere
+
+/**
+ * Warm up a Render free-tier backend by polling /health.
+ * First cold start can take ~30–60s. We poll up to ~70s.
+ */
+async function warmUpServer(API_URL) {
+  const deadline = Date.now() + 70_000; // ~70s budget
+  let lastErr = null;
+
+  while (Date.now() < deadline) {
+    try {
+      const res = await axios.get(`${API_URL}/health`, { timeout: 10_000 });
+      if (res?.data?.status === "ok") return true;
+    } catch (e) {
+      lastErr = e;
+    }
+    // wait 3s and retry
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+  // If backend woke but /health lagged, let the main call try anyway.
+  throw lastErr || new Error("Warm-up timed out");
+}
 
 const MeetingMom = ({ setActiveTab, onSuccess }) => {
   // Files (classic mode)
@@ -127,18 +149,29 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
       let generated = "";
 
       if (useAI) {
+        // Warm-up step for Render cold starts
+        setMsg("Warming server (~30–60s on free plan)...");
+        try {
+          await warmUpServer(API_URL);
+        } catch {
+          // Continue anyway; sometimes /health lags while app is up
+        }
+
         // ✅ AI route expects x-www-form-urlencoded with 'transcript'
+        setMsg("Generating MOM…");
         const data = new URLSearchParams();
         data.set("transcript", transcript.trim());
 
         const res = await axios.post(`${API_URL}/ai/mom-generator`, data, {
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          timeout: 45000, // ms
+          // Larger timeout than possible cold start + model latency
+          timeout: 120_000, // 120 seconds
         });
 
         generated = res?.data?.mom || "";
       } else {
         // Classic route supports files + transcript (multipart/form-data)
+        setMsg("Generating MOM (classic) …");
         const formData = new FormData();
         if (video) formData.append("video", video);
         if (image) formData.append("image", image);
@@ -146,7 +179,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
 
         const res = await axios.post(`${API_URL}/meeting-mom`, formData, {
           headers: { "Content-Type": "multipart/form-data" },
-          timeout: 90000, // might be longer for files
+          timeout: 90_000, // might be longer for files
         });
 
         generated = res?.data?.mom || "";
@@ -203,7 +236,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
     <ToolLayout
       title="Meeting MOM Generator"
       description="Upload meeting video/screenshot or paste transcript to generate Minutes of Meeting"
-      onBack={() => setActiveTab("dashboard")}
+      onBack={() => setActiveTab?.("dashboard")}
     >
       {/* AI Toggle */}
       <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
