@@ -15,10 +15,10 @@ async function ensureFFmpegLoaded() {
 }
 
 /**
- * Warm up Render free-tier backend
+ * Warm up Render free-tier backend with /health (CORS-friendly)
  */
 async function warmUpServer(API_URL) {
-  const deadline = Date.now() + 70_000;
+  const deadline = Date.now() + 70_000; // ~70s
   let lastErr = null;
   while (Date.now() < deadline) {
     try {
@@ -33,7 +33,8 @@ async function warmUpServer(API_URL) {
 }
 
 /**
- * Extract audio and split into ~5‑min WAV chunks (16kHz mono)
+ * Extract audio and split into ~2‑min WAV chunks (16kHz mono)
+ * 120s chunks are more stable on free CPU (smaller uploads to /transcribe/local)
  */
 async function extractAndChunkAudio(videoFile, onProgress) {
   await ensureFFmpegLoaded();
@@ -46,13 +47,13 @@ async function extractAndChunkAudio(videoFile, onProgress) {
   const wavName = "audio.wav";
   await ffmpeg.run("-i", inputName, "-vn", "-ac", "1", "-ar", "16000", "-f", "wav", wavName);
 
-  onProgress?.("Splitting into 5‑minute chunks …");
-  await ffmpeg.run("-i", wavName, "-f", "segment", "-segment_time", "300", "-c", "copy", "chunk%03d.wav");
+  onProgress?.("Splitting into 2‑minute chunks …");
+  await ffmpeg.run("-i", wavName, "-f", "segment", "-segment_time", "120", "-c", "copy", "chunk%03d.wav");
 
   const entries = ffmpeg.FS("readdir", "/").filter((n) => /^chunk\d{3}\.wav$/.test(n)).sort();
 
   if (!entries.length) {
-    // fallback: ek hi chunk
+    // Fallback: ek hi chunk
     const data = ffmpeg.FS("readFile", wavName);
     try { ffmpeg.FS("unlink", wavName); } catch {}
     try { ffmpeg.FS("unlink", inputName); } catch {}
@@ -94,7 +95,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
   const lastSuccessRef = useRef(0);
   const lastHistoryRef = useRef({ key: "", at: 0 });
 
-  // refs for file inputs
+  // refs
   const videoInputRef = useRef(null);
   const imageInputRef = useRef(null);
 
@@ -189,9 +190,6 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
     setMsg("");
     setMom("");
 
-    // Fire-and-forget warm ping (never blocks)
-    try { await window.fetch(`${API_URL}/health`, { mode: "no-cors" }); } catch {}
-
     try {
       let generated = "";
 
@@ -211,17 +209,27 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
           setMsg("Extracting audio & chunking (this may take a few minutes) …");
           const chunks = await extractAndChunkAudio(video, (m) => setMsg(m));
 
-          // 2) Transcribe chunks via local Whisper
+          // 2) Transcribe chunks via local Whisper (+ small retry for first warm-up hiccup)
           const parts = [];
           for (let i = 0; i < chunks.length; i++) {
             setMsg(`Transcribing chunk ${i + 1}/${chunks.length} …`);
             const form = new FormData();
             form.append("file", new File([chunks[i].blob], chunks[i].name, { type: "audio/wav" }));
-            // Optional: language hint — form.append("language", "en"); // or "hi"
-            const r = await axios.post(`${API_URL}/transcribe/local`, form, {
-              headers: { "Content-Type": "multipart/form-data" },
-              timeout: 120_000,
-            });
+
+            let r;
+            try {
+              r = await axios.post(`${API_URL}/transcribe/local`, form, {
+                headers: { "Content-Type": "multipart/form-data" },
+                timeout: 120_000,
+              });
+            } catch {
+              await new Promise((res) => setTimeout(res, 1500));
+              r = await axios.post(`${API_URL}/transcribe/local`, form, {
+                headers: { "Content-Type": "multipart/form-data" },
+                timeout: 120_000,
+              });
+            }
+
             parts.push(r?.data?.text || "");
           }
           finalTranscript = parts.join("\n").trim();
