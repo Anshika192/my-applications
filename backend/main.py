@@ -149,13 +149,35 @@ app.add_middleware(
     expose_headers=["*"],
 )
 
-# ✅ Add CORP header on every response (COEP friendlier)
+
+# COEP-friendly: add CORP on every response
+@app.middleware("http")
+async def add_corp_header(request, call_next):
+    resp = await call_next(request)
+    resp.headers["Cross-Origin-Resource-Policy"] = "cross-origin"
+    return resp
+
+# (Optional debug) Origin log
 @app.middleware("http")
 async def log_origin(request, call_next):
-    # print origin to logs (temporarily)
     origin = request.headers.get("origin")
     print(f"[CORS] Origin: {origin}")
     return await call_next(request)
+
+# ---- Rest of setup AFTER middleware ----
+for d in ["uploads", "output", "temp_uploads", "temp_mom"]:
+    os.makedirs(d, exist_ok=True)
+
+app.mount("/uploads",      StaticFiles(directory="uploads",      check_dir=False), name="uploads")
+app.mount("/output",       StaticFiles(directory="output",       check_dir=False), name="output")
+app.mount("/temp_uploads", StaticFiles(directory="temp_uploads", check_dir=False), name="temp_uploads")
+app.mount("/temp_mom",     StaticFiles(directory="temp_mom",     check_dir=False), name="temp_mom")
+
+models.Base.metadata.create_all(bind=database.engine)
+
+app.include_router(pdf_image_router)
+app.include_router(auth_router)
+app.include_router(user_data_router)
 
 
 get_db = database.get_db
