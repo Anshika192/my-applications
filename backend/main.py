@@ -77,21 +77,24 @@ app.include_router(auth_router)
 app.include_router(user_data_router)
 
 # CORS
-origins = [
+origins = [    
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:3000",
+    # keep any explicit prod domains you want to allow:
     "https://my-applications-mocha.vercel.app",
     "https://minapplications-frontend.onrender.com",
-    "https://my-applications-mnstsyh9g-anshika192s-projects.vercel.app",  # <-- new exact domain
 ]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
+    allow_origin_regex=r"https://.*\.vercel\.app$",  # <— allow ALL Vercel preview URLs
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 # Share the DB session dependency
 get_db = database.get_db
