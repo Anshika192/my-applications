@@ -45,6 +45,7 @@ except Exception as e:
     whisper_model = None
     print(f"[WARN] Faster-Whisper init failed: {e}")
 
+
 def _write_silence_wav(path, duration_sec=0.5, rate=16000):
     nframes = int(duration_sec * rate)
     with wave.open(path, "w") as w:
@@ -142,8 +143,7 @@ def _upload_to_gemini(upload: UploadFile):
         except Exception:
             pass
         
-        
-# ------------------------ FastAPI App ------------------------
+       
 # ------------------------ FastAPI App ------------------------
 app = FastAPI(
     title="My Applications - MOM API",
@@ -196,6 +196,17 @@ app.include_router(user_data_router)
 
 
 get_db = database.get_db
+
+
+# ---- Whisper init ----
+whisper_model: Optional[WhisperModel] = None
+try:
+    whisper_model = WhisperModel(WHISPER_MODEL, device=WHISPER_COMPUTE, compute_type="int8")
+    print(f"[Whisper] Loaded model='{WHISPER_MODEL}' device='{WHISPER_COMPUTE}'")
+except Exception as e:
+    whisper_model = None
+    print(f"[WARN] Faster-Whisper init failed: {e}")
+
 
 # ---------------- Health + basic routes ----------------
 @app.get("/health")
