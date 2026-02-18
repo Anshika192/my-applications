@@ -12,6 +12,7 @@ from PyPDF2 import PdfMerger, PdfReader, PdfWriter
 from pdf2docx import Converter
 from pptx import Presentation
 import pandas as pd
+import wave, struct
 
 import models, schemas, database
 from routers.pdf_to_image import router as pdf_image_router
@@ -44,6 +45,43 @@ except Exception as e:
     whisper_model = None
     print(f"[WARN] Faster-Whisper init failed: {e}")
 
+def _write_silence_wav(path, duration_sec=0.5, rate=16000):
+    nframes = int(duration_sec * rate)
+    with wave.open(path, "w") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        silence = struct.pack("<h", 0)  # <<-- NOTE: '<h' (little-endian 16-bit)
+        w.writeframes(silence * nframes)
+
+@app.on_event("startup")
+async def preload_whisper():
+    """
+    Force-download weights & warm the model once at startup so
+    the first /transcribe/local request doesn't time out (502).
+    """
+    if whisper_model is None:
+        return
+    tmp = None
+    try:
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav"); tmp.close()
+        _write_silence_wav(tmp.name, 0.5)
+        # force weights download – ignore output
+        segments, info = whisper_model.transcribe(
+            tmp.name,
+            beam_size=WHISPER_BEAM,
+            vad_filter=True,
+            without_timestamps=True,
+        )
+        _ = "".join(seg.text for seg in segments)
+        print("[Whisper preload] done")
+    except Exception as e:
+        print("[Whisper preload] failed:", e)
+    finally:
+        try:
+            os.remove(tmp.name)
+        except Exception:
+            pass
 
 def pick_gemini_model():
     """
@@ -106,70 +144,52 @@ def _upload_to_gemini(upload: UploadFile):
         
         
 # ------------------------ FastAPI App ------------------------
+# ------------------------ FastAPI App ------------------------
 app = FastAPI(
     title="My Applications - MOM API",
     version="0.1.0",
     description="Classic MOM + AI MOM (Gemini) + Local Whisper transcription",
 )
 
+# ---- CORS registered EARLY ----
+from fastapi.middleware.cors import CORSMiddleware
+
 origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:3000",
-    # optional: fixed prod domain
-    # "https://my-applications-mocha.vercel.app",
+    # "https://my-applications-mocha.vercel.app",  # optional prod
 ]
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_origin_regex=r"^https://.*\.vercel\.app$",   # ✅ ALL Vercel previews
+    allow_origin_regex=r"^https://.*\.vercel\.app$",  # ALL Vercel previews
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
 )
 
-# COEP-friendly: add CORP on **every** response
+# COEP-friendly: CORP on all responses
 @app.middleware("http")
 async def add_corp_header(request, call_next):
     resp = await call_next(request)
     resp.headers["Cross-Origin-Resource-Policy"] = "cross-origin"
     return resp
 
-# (optional) temporary log to verify origin reaching app
+# (Optional) debug to verify origin reaches the app
 @app.middleware("http")
 async def log_origin(request, call_next):
-    print(f"[CORS] Origin:", request.headers.get("origin"))
+    print("[CORS] Origin:", request.headers.get("origin"))
     return await call_next(request)
 
-# ---------------- app + mounts ----------------
+# ---- now mounts, DB init, routers ----
 for d in ["uploads", "output", "temp_uploads", "temp_mom"]:
     os.makedirs(d, exist_ok=True)
 
-
-app.mount("/uploads",      StaticFiles(directory="uploads",      check_dir=False), name="uploads")
-app.mount("/output",       StaticFiles(directory="output",       check_dir=False), name="output")
-app.mount("/temp_uploads", StaticFiles(directory="temp_uploads", check_dir=False), name="temp_uploads")
-app.mount("/temp_mom",     StaticFiles(directory="temp_mom",     check_dir=False), name="temp_mom")
-
+app.mount("/uploads", StaticFiles(directory="uploads", check_dir=False), name="uploads")
+...
 models.Base.metadata.create_all(bind=database.engine)
-
-app.include_router(pdf_image_router)
-app.include_router(auth_router)
-app.include_router(user_data_router)
-
-# ---- Rest of setup AFTER middleware ----
-for d in ["uploads", "output", "temp_uploads", "temp_mom"]:
-    os.makedirs(d, exist_ok=True)
-
-app.mount("/uploads",      StaticFiles(directory="uploads",      check_dir=False), name="uploads")
-app.mount("/output",       StaticFiles(directory="output",       check_dir=False), name="output")
-app.mount("/temp_uploads", StaticFiles(directory="temp_uploads", check_dir=False), name="temp_uploads")
-app.mount("/temp_mom",     StaticFiles(directory="temp_mom",     check_dir=False), name="temp_mom")
-
-models.Base.metadata.create_all(bind=database.engine)
-
 app.include_router(pdf_image_router)
 app.include_router(auth_router)
 app.include_router(user_data_router)
