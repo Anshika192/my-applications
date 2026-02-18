@@ -112,11 +112,41 @@ app = FastAPI(
     description="Classic MOM + AI MOM (Gemini) + Local Whisper transcription",
 )
 
+origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    # optional: fixed prod domain
+    # "https://my-applications-mocha.vercel.app",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_origin_regex=r"^https://.*\.vercel\.app$",   # ✅ ALL Vercel previews
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+)
+
+# COEP-friendly: add CORP on **every** response
+@app.middleware("http")
+async def add_corp_header(request, call_next):
+    resp = await call_next(request)
+    resp.headers["Cross-Origin-Resource-Policy"] = "cross-origin"
+    return resp
+
+# (optional) temporary log to verify origin reaching app
+@app.middleware("http")
+async def log_origin(request, call_next):
+    print(f"[CORS] Origin:", request.headers.get("origin"))
+    return await call_next(request)
+
 # ---------------- app + mounts ----------------
 for d in ["uploads", "output", "temp_uploads", "temp_mom"]:
     os.makedirs(d, exist_ok=True)
 
-app = FastAPI()
 
 app.mount("/uploads",      StaticFiles(directory="uploads",      check_dir=False), name="uploads")
 app.mount("/output",       StaticFiles(directory="output",       check_dir=False), name="output")
@@ -128,41 +158,6 @@ models.Base.metadata.create_all(bind=database.engine)
 app.include_router(pdf_image_router)
 app.include_router(auth_router)
 app.include_router(user_data_router)
-
-# ---------------- CORS ----------------
-
-origins = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://localhost:3000",
-    # (optional) apna fixed prod domain agar hai to yahan add karo:
-    # "https://my-applications-mocha.vercel.app",
-]
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_origin_regex=r"^https://.*\.vercel\.app$",  # ✅ ALL Vercel previews
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["*"],
-)
-
-
-# COEP-friendly: add CORP on every response
-@app.middleware("http")
-async def add_corp_header(request, call_next):
-    resp = await call_next(request)
-    resp.headers["Cross-Origin-Resource-Policy"] = "cross-origin"
-    return resp
-
-# (Optional debug) Origin log
-@app.middleware("http")
-async def log_origin(request, call_next):
-    origin = request.headers.get("origin")
-    print(f"[CORS] Origin: {origin}")
-    return await call_next(request)
 
 # ---- Rest of setup AFTER middleware ----
 for d in ["uploads", "output", "temp_uploads", "temp_mom"]:
