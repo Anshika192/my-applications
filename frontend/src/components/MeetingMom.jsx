@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import axios from "axios";
 import jsPDF from "jspdf";
-import ToolLayout from "./ToolLayout"; // adjust if ToolLayout is elsewhere
+import ToolLayout from "./ToolLayout";
 
 /**
  * Warm up a Render free-tier backend by polling /health.
@@ -26,7 +26,7 @@ async function warmUpServer(API_URL) {
 }
 
 const MeetingMom = ({ setActiveTab, onSuccess }) => {
-  // Files (classic mode)
+  // Files
   const [video, setVideo] = useState(null);
   const [image, setImage] = useState(null);
 
@@ -118,14 +118,11 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
       return;
     }
 
-    <div style={{fontSize: 12, opacity: 0.5, marginTop: 6}}>
-  API: {import.meta.env.VITE_API_URL}
-</div>
-
     // Basic validation
     if (useAI) {
-      if (!transcript.trim()) {
-        setMsg("Please paste transcript for AI mode.");
+      // In AI mode, at least one of transcript/video/image should be present
+      if (!transcript.trim() && !video && !image) {
+        setMsg("Provide transcript or upload video/image for AI mode.");
         return;
       }
     } else {
@@ -135,25 +132,27 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
       }
     }
 
-    // Optional free-plan file size guards (uncomment if needed)
-    // if (!useAI && video && video.size > 25 * 1024 * 1024) {
-    //   setMsg("Video is too large (max ~25 MB on free plan).");
-    //   return;
-    // }
-    // if (!useAI && image && image.size > 10 * 1024 * 1024) {
-    //   setMsg("Image is too large (max ~10 MB).");
-    //   return;
-    // }
+    // Optional free-plan file size guards
+    // Tune as per your use-case or remove if not needed
+    const maxVideoMB = 25;
+    const maxImageMB = 10;
+    if (video && video.size && video.size > maxVideoMB * 1024 * 1024) {
+      setMsg(`Video is too large (max ~${maxVideoMB} MB).`);
+      return;
+    }
+    if (image && image.size && image.size > maxImageMB * 1024 * 1024) {
+      setMsg(`Image is too large (max ~${maxImageMB} MB).`);
+      return;
+    }
 
     setLoading(true);
     setMsg("");
     setMom("");
 
-    
-try {
-  await window.fetch(`${API_URL}/health`, { mode: "no-cors" });
-} catch (_) {}
-
+    // Fire-and-forget warm ping (never blocks on CORS)
+    try {
+      await window.fetch(`${API_URL}/health`, { mode: "no-cors" });
+    } catch (_) {}
 
     try {
       let generated = "";
@@ -167,18 +166,32 @@ try {
           // Continue anyway; sometimes /health lags while app is up
         }
 
-        // ✅ AI route expects x-www-form-urlencoded with 'transcript'
         setMsg("Generating MOM…");
-        const data = new URLSearchParams();
-        data.set("transcript", transcript.trim());
 
-        const res = await axios.post(`${API_URL}/ai/mom-generator`, data, {
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          // Larger timeout than possible cold start + model latency
-          timeout: 120_000, // 120 seconds
-        });
+        const hasFiles = Boolean(video || image);
+        if (hasFiles) {
+          // ✅ AI with media → multipart
+          const form = new FormData();
+          if (video) form.append("video", video);
+          if (image) form.append("image", image);
+          if (transcript.trim()) form.append("transcript", transcript.trim());
 
-        generated = res?.data?.mom || "";
+          const res = await axios.post(`${API_URL}/ai/mom-generator`, form, {
+            headers: { "Content-Type": "multipart/form-data" },
+            timeout: 120_000,
+          });
+          generated = res?.data?.mom || "";
+        } else {
+          // ✅ Only transcript → urlencoded
+          const data = new URLSearchParams();
+          data.set("transcript", transcript.trim());
+
+          const res = await axios.post(`${API_URL}/ai/mom-generator`, data, {
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            timeout: 120_000,
+          });
+          generated = res?.data?.mom || "";
+        }
       } else {
         // Classic route supports files + transcript (multipart/form-data)
         setMsg("Generating MOM (classic) …");
@@ -248,6 +261,11 @@ try {
       description="Upload meeting video/screenshot or paste transcript to generate Minutes of Meeting"
       onBack={() => setActiveTab?.("dashboard")}
     >
+      {/* Debug API URL (remove later if you want) */}
+      <div style={{ fontSize: 12, opacity: 0.5, marginTop: 6 }}>
+        API: {import.meta.env.VITE_API_URL || "(not set)"}
+      </div>
+
       {/* AI Toggle */}
       <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
         <label style={{ fontWeight: 700 }}>
@@ -265,72 +283,66 @@ try {
         </label>
         <div style={{ fontSize: 12, opacity: 0.7 }}>
           {useAI
-            ? "Uses /ai/mom-generator (transcript required)"
-            : "Uses /meeting-mom (files or transcript allowed)"}
+            ? "AI can use transcript and/or uploaded media"
+            : "Classic uses a simple logic over files/transcript"}
         </div>
       </div>
 
-      {/* Upload Video (classic only) */}
-      {!useAI && (
-        <div style={{ marginBottom: 15 }}>
-          <label style={{ display: "block", marginBottom: 6, fontSize: 14 }}>
-            Upload Meeting Video (optional)
-          </label>
-          <input
-            key={`v-${fileKey}`}
-            ref={videoInputRef}
-            type="file"
-            accept="video/*"
-            onChange={(e) => {
-              setVideo(e.target.files?.[0] || null);
-              setMsg("");
-            }}
-            style={{ width: "100%" }}
-          />
-          {video?.name && (
-            <div style={{ marginTop: 6, fontSize: 12, opacity: 0.7 }}>
-              Selected: <b>{video.name}</b>
-            </div>
-          )}
-        </div>
-      )}
+      {/* Upload Video (available in both modes) */}
+      <div style={{ marginBottom: 15 }}>
+        <label style={{ display: "block", marginBottom: 6, fontSize: 14 }}>
+          Upload Meeting Video (optional)
+        </label>
+        <input
+          key={`v-${fileKey}`}
+          ref={videoInputRef}
+          type="file"
+          accept="video/*"
+          onChange={(e) => {
+            setVideo(e.target.files?.[0] || null);
+            setMsg("");
+          }}
+          style={{ width: "100%" }}
+        />
+        {video?.name && (
+          <div style={{ marginTop: 6, fontSize: 12, opacity: 0.7 }}>
+            Selected: <b>{video.name}</b>
+          </div>
+        )}
+      </div>
 
-      {/* Upload Image (classic only) */}
-      {!useAI && (
-        <div style={{ marginBottom: 15 }}>
-          <label style={{ display: "block", marginBottom: 6, fontSize: 14 }}>
-            Upload Screenshot (OCR)
-          </label>
-          <input
-            key={`i-${fileKey}`}
-            ref={imageInputRef}
-            type="file"
-            accept="image/*"
-            onChange={(e) => {
-              setImage(e.target.files?.[0] || null);
-              setMsg("");
-            }}
-            style={{ width: "100%" }}
-          />
-          {image?.name && (
-            <div style={{ marginTop: 6, fontSize: 12, opacity: 0.7 }}>
-              Selected: <b>{image.name}</b>
-            </div>
-          )}
-        </div>
-      )}
+      {/* Upload Image (available in both modes) */}
+      <div style={{ marginBottom: 15 }}>
+        <label style={{ display: "block", marginBottom: 6, fontSize: 14 }}>
+          Upload Screenshot (OCR) (optional)
+        </label>
+        <input
+          key={`i-${fileKey}`}
+          ref={imageInputRef}
+          type="file"
+          accept="image/*"
+          onChange={(e) => {
+            setImage(e.target.files?.[0] || null);
+            setMsg("");
+          }}
+          style={{ width: "100%" }}
+        />
+        {image?.name && (
+          <div style={{ marginTop: 6, fontSize: 12, opacity: 0.7 }}>
+            Selected: <b>{image.name}</b>
+          </div>
+        )}
+      </div>
 
       {/* Divider */}
-      {!useAI && (
-        <div style={{ textAlign: "center", margin: "12px 0", opacity: 0.7, fontWeight: 700 }}>
-          OR
-        </div>
-      )}
+      <div style={{ textAlign: "center", margin: "12px 0", opacity: 0.7, fontWeight: 700 }}>
+        OR
+      </div>
 
       {/* Transcript */}
       <div style={{ marginBottom: 15 }}>
         <label style={{ display: "block", marginBottom: 6, fontSize: 14 }}>
-          Paste Meeting Transcript {useAI ? "(required for AI)" : ""}
+          Paste Meeting Transcript {useAI ? "(optional with files)" : ""}
         </label>
         <textarea
           rows={5}
@@ -341,7 +353,7 @@ try {
           }}
           placeholder={
             useAI
-              ? "Paste transcript here (AI requires transcript)."
+              ? "Paste transcript here (optional if you upload media)."
               : "Paste transcript here (or upload meeting video/screenshot)."
           }
           style={{
