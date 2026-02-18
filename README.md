@@ -62,3 +62,6 @@ py -3 -m venv venv
 .\venv\Scripts\activate
 pip install -r requirements.txt
 python -m uvicorn main:app --reload
+
+
+# Team discussed the progress of API-3. The backend work is delayed by 4 days because the integration tests are failing. QA is waiting for a stable build. The frontend team has completed their tasks. Deployment is expected by next Monday. Ankit will handle the remaining backend fixes and Priya will take care of documentation. Risk of further delay if API-3 issues are not resolved today.

@@ -17,7 +17,8 @@ import models, schemas, database
 from routers.pdf_to_image import router as pdf_image_router
 from routers.auth import router as auth_router
 from routers.user_data import router as user_data_router
-
+import tempfile
+from pathlib import Path
 
 # ---------------- Gemini config + model picker ----------------
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -65,6 +66,24 @@ def pick_gemini_model():
     raise HTTPException(status_code=500, detail="No suitable Gemini model available for generateContent.")
 
 
+def _upload_to_gemini(upload: UploadFile):
+    """
+    Save UploadFile to a temp path and upload to Gemini File API.
+    Returns the uploaded file handle (contains .name / .uri).
+    """
+    suffix = Path(upload.filename or "").suffix or ""
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        upload.file.seek(0)
+        shutil.copyfileobj(upload.file, tmp)
+        tmp_path = tmp.name
+    try:
+        gfile = genai.upload_file(path=tmp_path, mime_type=upload.content_type or None)
+        return gfile
+    finally:
+        try:
+            os.remove(tmp_path)
+        except Exception:
+            pass
 # ---------------- app + mounts ----------------
 for d in ["uploads", "output", "temp_uploads", "temp_mom"]:
     os.makedirs(d, exist_ok=True)
@@ -359,20 +378,28 @@ async def generate_meeting_mom(
 
 # ---------------- AI MOM (Gemini) ----------------
 @app.post("/ai/mom-generator")
-async def ai_mom_generator(transcript: str = Form(...)):
+async def ai_mom_generator(
+    transcript: Optional[str] = Form(None),
+    video: Optional[UploadFile] = File(None),
+    image: Optional[UploadFile] = File(None),
+):
     if not os.getenv("GEMINI_API_KEY"):
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured on server.")
-    if not transcript or not transcript.strip():
-        raise HTTPException(status_code=400, detail="Transcript is required")
-    if len(transcript) > 20000:
-        raise HTTPException(status_code=413, detail="Transcript too large (max ~20k chars).")
 
-    prompt = f"""
-You are an expert corporate assistant. Convert the following meeting transcript
-into a clean, structured Minutes of Meeting (MOM). Be concise, factual, and avoid inventing details.
+    # At least one input must be present
+    if not (transcript and transcript.strip()) and not video and not image:
+        raise HTTPException(status_code=400, detail="Provide transcript or upload video/image")
 
-Transcript:
-\"\"\"{transcript.strip()}\"\"\"
+    # Size guards (free-tier friendly; adjust if needed)
+    if video and video.size and video.size > 25 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Video too large (>25MB)")
+    if image and image.size and image.size > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Image too large (>10MB)")
+
+    # Prompt (plain '&', not HTML entity)
+    base_prompt = """
+You are an expert corporate assistant. Convert the following inputs into a clean, structured Minutes of Meeting (MOM).
+Be concise and factual. If both media and transcript are provided, use transcript as primary and media as context.
 
 STRICT FORMAT (use these exact headers):
 MEETING TITLE:
@@ -389,13 +416,31 @@ Rules:
 - No extra commentary outside these sections
 """.strip()
 
+    parts = [base_prompt]
+
+    # Add transcript if present
+    if transcript and transcript.strip():
+        parts.append(f'Transcript:\n"""{transcript.strip()}"""')
+
+    # Upload media to Gemini File API and attach
+    uploaded = []
     try:
+        if image:
+            gimg = _upload_to_gemini(image)
+            uploaded.append(gimg)
+            parts.append(gimg)
+        if video:
+            gvid = _upload_to_gemini(video)
+            uploaded.append(gvid)
+            parts.append(gvid)
+
         model = pick_gemini_model()
+
         loop = asyncio.get_running_loop()
         try:
             resp = await asyncio.wait_for(
-                loop.run_in_executor(None, model.generate_content, prompt),
-                timeout=30,
+                loop.run_in_executor(None, model.generate_content, parts),
+                timeout=60,  # media + generation ko thoda zyada time do
             )
         except asyncio.TimeoutError:
             raise HTTPException(status_code=504, detail="AI generation timed out. Try again.")
@@ -404,46 +449,13 @@ Rules:
         text = html.unescape(text)
         if not text:
             raise HTTPException(status_code=502, detail="AI returned empty response")
+
         return {"mom": text}
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# ---------------- AI model catalog ----------------
-@app.get("/ai/models")
-def ai_models():
-    try:
-        return {
-            "models": [
-                m.name for m in genai.list_models()
-                if "generateContent" in getattr(m, "supported_generation_methods", [])
-            ]
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# ---------------- MOM persistence ----------------
-@app.post("/mom/save")
-def mom_save(mode: str = Form("AI"),
-             transcript: str = Form(...),
-             mom: str = Form(...),
-             db: Session = Depends(get_db)):
-    rec = models.MomRecord(mode=mode, transcript=transcript, mom=mom)
-    db.add(rec); db.commit(); db.refresh(rec)
-    return {"id": rec.id, "created_at": rec.created_at}
-
-@app.get("/mom/recent")
-def mom_recent(limit: int = 20, db: Session = Depends(get_db)):
-    q = db.query(models.MomRecord).order_by(models.MomRecord.id.desc()).limit(limit).all()
-    return [
-        {
-            "id": r.id, "mode": r.mode, "created_at": r.created_at,
-            "transcriptPreview": (r.transcript[:120] + ("..." if len(r.transcript) > 120 else "")),
-            "momPreview": (r.mom[:200] + ("..." if len(r.mom) > 200 else "")),
-        }
-        for r in q
-    ]
+    finally:
+        # Optional: Gemini storage ko clean karo (quota bachane ke liye)
+        for f in uploaded:
+            try:
+                genai.delete_file(f.name)
+            except Exception:
+                pass

@@ -6,6 +6,16 @@ import models, schemas
 from database import get_db
 from utils.security import hash_password, verify_password, create_access_token, decode_token
 
+# backend/utils/security.py
+from passlib.context import CryptContext
+pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def hash_password(plain: str) -> str:
+    return pwd_ctx.hash(plain)
+
+def verify_password(plain: str, hashed: str) -> bool:
+    return pwd_ctx.verify(plain, hashed)
+
 router = APIRouter(prefix="/auth", tags=["Auth"])
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
