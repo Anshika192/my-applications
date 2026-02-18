@@ -151,10 +151,11 @@ app.add_middleware(
 
 # ✅ Add CORP header on every response (COEP friendlier)
 @app.middleware("http")
-async def add_corp_header(request, call_next):
-    resp = await call_next(request)
-    resp.headers["Cross-Origin-Resource-Policy"] = "cross-origin"
-    return resp
+async def log_origin(request, call_next):
+    # print origin to logs (temporarily)
+    origin = request.headers.get("origin")
+    print(f"[CORS] Origin: {origin}")
+    return await call_next(request)
 
 
 get_db = database.get_db
