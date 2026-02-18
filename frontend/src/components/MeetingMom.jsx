@@ -4,23 +4,16 @@ import jsPDF from "jspdf";
 import ToolLayout from "./ToolLayout";
 import { createFFmpeg, fetchFile } from "@ffmpeg/ffmpeg";
 
-/**
- * FFmpeg WASM instance (lazy-loaded)
- */
-const ffmpeg = createFFmpeg({ log: false }); // set log:true for debugging
-
+const ffmpeg = createFFmpeg({ log: false });
 async function ensureFFmpegLoaded() {
   if (!ffmpeg.isLoaded()) {
     await ffmpeg.load();
   }
 }
 
-/**
- * Warm up a Render free-tier backend by polling /health.
- * First cold start can take ~30–60s. We poll up to ~70s.
- */
+// Warm up a Render free-tier backend by polling /health.
 async function warmUpServer(API_URL) {
-  const deadline = Date.now() + 70_000; // ~70s
+  const deadline = Date.now() + 70_000;
   let lastErr = null;
   while (Date.now() < deadline) {
     try {
@@ -34,131 +27,65 @@ async function warmUpServer(API_URL) {
   throw lastErr || new Error("Warm-up timed out");
 }
 
-/**
- * Extract audio from video and split into ~5-min chunks (WAV 16k mono).
- * Returns: [{ name, blob, type:'audio/wav' }, ...]
- */
+// Extract audio from video and split into ~5-min chunks (WAV 16k mono).
 async function extractAndChunkAudio(videoFile, onProgress) {
   await ensureFFmpegLoaded();
+  const inputExt = (videoFile.name.split(".").pop() || "mp4").toLowerCase();
+  const inputName = `input.${inputExt}`;
+  ffmpeg.FS("writeFile", inputName, await fetchFile(videoFile));
 
-  // Write input file to FS
-  const inputName = "input_video";
-  const ext = (videoFile.name.split(".").pop() || "mp4").toLowerCase();
-  const inputFile = `${inputName}.${ext}`;
-  ffmpeg.FS("writeFile", inputFile, await fetchFile(videoFile));
-
-  // 1) Extract to 16kHz mono WAV (PCM), very compatible for Whisper
   onProgress?.("Extracting audio (16 kHz mono) …");
   const wavName = "audio.wav";
-  await ffmpeg.run(
-    "-i",
-    inputFile,
-    "-vn",
-    "-ac",
-    "1",
-    "-ar",
-    "16000",
-    "-f",
-    "wav",
-    wavName
-  );
+  await ffmpeg.run("-i", inputName, "-vn", "-ac", "1", "-ar", "16000", "-f", "wav", wavName);
 
-  // 2) Segment into 300s (~5 min) chunks without re-encoding
   onProgress?.("Splitting into 5‑minute chunks …");
-  await ffmpeg.run(
-    "-i",
-    wavName,
-    "-f",
-    "segment",
-    "-segment_time",
-    "300",
-    "-c",
-    "copy",
-    "chunk%03d.wav"
-  );
+  await ffmpeg.run("-i", wavName, "-f", "segment", "-segment_time", "300", "-c", "copy", "chunk%03d.wav");
 
-  // Collect outputs
-  const entries = ffmpeg.FS("readdir", "/")
-    .filter((n) => /^chunk\d{3}\.wav$/.test(n))
-    .sort();
-
-  if (!entries.length) {
-    // In rare cases, segment muxer may fail; fall back to full wav as one chunk
-    const data = ffmpeg.FS("readFile", wavName);
-    ffmpeg.FS("unlink", wavName);
-    ffmpeg.FS("unlink", inputFile);
-    return [
-      {
-        name: "chunk000.wav",
-        blob: new Blob([data.buffer], { type: "audio/wav" }),
-        type: "audio/wav",
-      },
-    ];
-  }
-
+  const entries = ffmpeg.FS("readdir", "/").filter((n) => /^chunk\d{3}\.wav$/.test(n)).sort();
   const chunks = [];
+  if (!entries.length) {
+    const data = ffmpeg.FS("readFile", wavName);
+    try { ffmpeg.FS("unlink", wavName); } catch {}
+    try { ffmpeg.FS("unlink", inputName); } catch {}
+    return [{ name: "chunk000.wav", blob: new Blob([data.buffer], { type: "audio/wav" }), type: "audio/wav" }];
+  }
   for (const name of entries) {
     const data = ffmpeg.FS("readFile", name);
-    chunks.push({
-      name,
-      blob: new Blob([data.buffer], { type: "audio/wav" }),
-      type: "audio/wav",
-    });
-    // cleanup chunk to free memory
-    try {
-      ffmpeg.FS("unlink", name);
-    } catch {}
+    chunks.push({ name, blob: new Blob([data.buffer], { type: "audio/wav" }), type: "audio/wav" });
+    try { ffmpeg.FS("unlink", name); } catch {}
   }
-
-  // cleanup large intermediates
-  try {
-    ffmpeg.FS("unlink", wavName);
-  } catch {}
-  try {
-    ffmpeg.FS("unlink", inputFile);
-  } catch {}
-
+  try { ffmpeg.FS("unlink", wavName); } catch {}
+  try { ffmpeg.FS("unlink", inputName); } catch {}
   return chunks;
 }
 
 const MeetingMom = ({ setActiveTab, onSuccess }) => {
-  // Files
   const [video, setVideo] = useState(null);
   const [image, setImage] = useState(null);
-
-  // Transcript (both modes)
   const [transcript, setTranscript] = useState("");
-
-  // AI toggle
   const [useAI, setUseAI] = useState(true);
 
-  // UI state
-  const [fileKey, setFileKey] = useState(0); // force-remount file inputs
+  const [fileKey, setFileKey] = useState(0);
   const [loading, setLoading] = useState(false);
   const [mom, setMom] = useState("");
   const [msg, setMsg] = useState("");
 
-  // History
   const [history, setHistory] = useState([]);
   const lastSuccessRef = useRef(0);
   const lastHistoryRef = useRef({ key: "", at: 0 });
 
-  // refs for file inputs
   const videoInputRef = useRef(null);
   const imageInputRef = useRef(null);
 
-  // ---- Load history on mount (safe parse) ----
   useEffect(() => {
     try {
       const raw = localStorage.getItem("meetingMomHistory");
-      const saved = raw ? JSON.parse(raw) : [];
-      setHistory(Array.isArray(saved) ? saved : []);
+      setHistory(raw ? (Array.isArray(JSON.parse(raw)) ? JSON.parse(raw) : []) : []);
     } catch {
       setHistory([]);
     }
   }, []);
 
-  // ---- Save history ----
   const saveHistory = (data) => {
     setHistory((prev) => {
       const updated = [data, ...prev].slice(0, 10);
@@ -167,25 +94,22 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
     });
   };
 
-  // ---- Clear only inputs ----
   const clearInputs = () => {
     setVideo(null);
     setImage(null);
-    // setTranscript(""); // uncomment to also clear text
+    // setTranscript("");
     if (videoInputRef.current) videoInputRef.current.value = null;
     if (imageInputRef.current) imageInputRef.current.value = null;
     setFileKey((k) => k + 1);
     setMsg("");
   };
 
-  // ---- Clear only history ----
   const clearHistory = () => {
     localStorage.removeItem("meetingMomHistory");
     setHistory([]);
     setMsg("History cleared");
   };
 
-  // ---- Copy MOM ----
   const copyMom = async () => {
     if (!mom) return;
     try {
@@ -196,7 +120,6 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
     }
   };
 
-  // ---- Download PDF ----
   const downloadPDF = () => {
     if (!mom) return;
     const doc = new jsPDF();
@@ -205,7 +128,6 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
     doc.save(`meeting_mom_${new Date().toISOString().slice(0, 10)}.pdf`);
   };
 
-  // ---- Generate MOM ----
   const handleGenerate = async () => {
     const API_URL = import.meta.env.VITE_API_URL;
     console.log("useAI =", useAI, "videoMB =", video ? (video.size / 1024 / 1024).toFixed(2) : 0);
@@ -215,7 +137,6 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
       return;
     }
 
-    // Basic validation
     if (useAI) {
       if (!transcript.trim() && !video && !image) {
         setMsg("Provide transcript or upload video/image for AI mode.");
@@ -229,8 +150,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
     }
 
     // Size guards — ONLY for Classic mode.
-    const maxVideoMB = 25;
-    const maxImageMB = 10;
+    const maxVideoMB = 25, maxImageMB = 10;
     if (!useAI) {
       if (video && video.size && video.size > maxVideoMB * 1024 * 1024) {
         setMsg(`Video is too large (max ~${maxVideoMB} MB).`);
@@ -246,25 +166,16 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
     setMsg("");
     setMom("");
 
-    // Fire-and-forget warm ping (never blocks on CORS)
-    try {
-      await window.fetch(`${API_URL}/health`, { mode: "no-cors" });
-    } catch (_) {}
+    try { await window.fetch(`${API_URL}/health`, { mode: "no-cors" }); } catch {}
 
     try {
       let generated = "";
 
       if (useAI) {
-        // Warm-up step for Render cold starts
         setMsg("Warming server (~30–60s on free plan)...");
-        try {
-          await warmUpServer(API_URL);
-        } catch {
-          // continue anyway
-        }
+        try { await warmUpServer(API_URL); } catch {}
 
         setMsg("Preparing media/transcript…");
-
         const hasVideo = Boolean(video);
         const hasImage = Boolean(image);
         const hasTranscript = Boolean(transcript.trim());
@@ -272,20 +183,14 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
         let finalTranscript = "";
 
         if (hasVideo) {
-          // 1) Client-side extract & chunk (WAV 16k mono)
           setMsg("Extracting audio & chunking (this may take a few minutes) …");
           const chunks = await extractAndChunkAudio(video, (m) => setMsg(m));
-
-          // 2) Transcribe chunks via local Whisper endpoint
           const parts = [];
           for (let i = 0; i < chunks.length; i++) {
             setMsg(`Transcribing chunk ${i + 1}/${chunks.length} …`);
             const form = new FormData();
-            form.append(
-              "file",
-              new File([chunks[i].blob], chunks[i].name, { type: "audio/wav" })
-            );
-            // Optional language hint: form.append("language", "en"); // or "hi"
+            form.append("file", new File([chunks[i].blob], chunks[i].name, { type: "audio/wav" }));
+            // Optional: form.append("language", "en"); // or "hi"
             const r = await axios.post(`${API_URL}/transcribe/local`, form, {
               headers: { "Content-Type": "multipart/form-data" },
               timeout: 120_000,
@@ -299,7 +204,6 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
           finalTranscript = (finalTranscript ? finalTranscript + "\n" : "") + transcript.trim();
         }
 
-        // 3) Generate MOM (image optional; transcript optional when image present)
         setMsg("Generating MOM…");
         if (hasImage) {
           const form = new FormData();
@@ -320,13 +224,11 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
           generated = res?.data?.mom || "";
         }
       } else {
-        // Classic mode: send files/transcript directly
         setMsg("Generating MOM (classic) …");
         const formData = new FormData();
         if (video) formData.append("video", video);
         if (image) formData.append("image", image);
         if (transcript.trim()) formData.append("transcript", transcript);
-
         const res = await axios.post(`${API_URL}/meeting-mom`, formData, {
           headers: { "Content-Type": "multipart/form-data" },
           timeout: 90_000,
@@ -337,7 +239,6 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
       setMom(generated);
       setMsg(generated ? "MOM generated successfully ✅" : "No content generated, try again.");
 
-      // History snapshot
       const now = Date.now();
       const key = `${useAI ? "AI" : "Classic"}__${video?.name || ""}__${image?.name || ""}__${transcript
         .trim()
@@ -352,9 +253,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
           transcriptPreview: transcript.trim()
             ? transcript.trim().slice(0, 70) + (transcript.trim().length > 70 ? "..." : "")
             : "—",
-          momPreview: generated
-            ? generated.slice(0, 90) + (generated.length > 90 ? "..." : "")
-            : "—",
+          momPreview: generated ? generated.slice(0, 90) + (generated.length > 90 ? "..." : "") : "—",
         });
         lastHistoryRef.current = { key, at: now };
       }
@@ -364,17 +263,13 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
         lastSuccessRef.current = now;
       }
 
-      // Clear file inputs after success (keep transcript for quick edits)
       clearInputs();
     } catch (err) {
       console.error(err);
       const status = err?.response?.status;
       const body = err?.response?.data;
       const detail =
-        body?.detail ||
-        (typeof body === "string" ? body : "") ||
-        err?.message ||
-        "Failed to generate MOM";
+        body?.detail || (typeof body === "string" ? body : "") || err?.message || "Failed to generate MOM";
       setMsg(`❌ ${status ? status + " • " : ""}${detail}`);
     } finally {
       setLoading(false);
@@ -387,7 +282,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
       description="Upload meeting video/screenshot or paste transcript to generate Minutes of Meeting"
       onBack={() => setActiveTab?.("dashboard")}
     >
-      {/* Debug badges (remove later if you want) */}
+      {/* Debug badges (remove later) */}
       <div style={{ fontSize: 12, opacity: 0.5, marginTop: 6 }}>
         API: {import.meta.env.VITE_API_URL || "(not set)"}
       </div>
@@ -415,11 +310,9 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
         </div>
       </div>
 
-      {/* Upload Video (both modes) */}
+      {/* Upload Video */}
       <div style={{ marginBottom: 15 }}>
-        <label style={{ display: "block", marginBottom: 6, fontSize: 14 }}>
-          Upload Meeting Video (optional)
-        </label>
+        <label style={{ display: "block", marginBottom: 6, fontSize: 14 }}>Upload Meeting Video (optional)</label>
         <input
           key={`v-${fileKey}`}
           ref={videoInputRef}
@@ -438,11 +331,9 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
         )}
       </div>
 
-      {/* Upload Image (both modes) */}
+      {/* Upload Image */}
       <div style={{ marginBottom: 15 }}>
-        <label style={{ display: "block", marginBottom: 6, fontSize: 14 }}>
-          Upload Screenshot (OCR) (optional)
-        </label>
+        <label style={{ display: "block", marginBottom: 6, fontSize: 14 }}>Upload Screenshot (OCR) (optional)</label>
         <input
           key={`i-${fileKey}`}
           ref={imageInputRef}
@@ -462,9 +353,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
       </div>
 
       {/* Divider */}
-      <div style={{ textAlign: "center", margin: "12px 0", opacity: 0.7, fontWeight: 700 }}>
-        OR
-      </div>
+      <div style={{ textAlign: "center", margin: "12px 0", opacity: 0.7, fontWeight: 700 }}>OR</div>
 
       {/* Transcript */}
       <div style={{ marginBottom: 15 }}>
@@ -483,13 +372,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
               ? "Paste transcript here (optional if you upload media)."
               : "Paste transcript here (or upload meeting video/screenshot)."
           }
-          style={{
-            width: "100%",
-            padding: 10,
-            borderRadius: 6,
-            border: "1px solid #ccc",
-            resize: "vertical",
-          }}
+          style={{ width: "100%", padding: 10, borderRadius: 6, border: "1px solid #ccc", resize: "vertical" }}
         />
       </div>
 
@@ -514,15 +397,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
 
       {/* Message */}
       {msg && (
-        <div
-          style={{
-            marginTop: 14,
-            fontSize: 14,
-            color: msg.includes("❌") ? "#b91c1c" : "#166534",
-          }}
-        >
-          {msg}
-        </div>
+        <div style={{ marginTop: 14, fontSize: 14, color: msg.includes("❌") ? "#b91c1c" : "#166534" }}>{msg}</div>
       )}
 
       {/* Output */}
@@ -533,13 +408,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
             rows={10}
             readOnly
             value={mom}
-            style={{
-              width: "100%",
-              padding: 10,
-              borderRadius: 6,
-              border: "1px solid #ccc",
-              resize: "vertical",
-            }}
+            style={{ width: "100%", padding: 10, borderRadius: 6, border: "1px solid #ccc", resize: "vertical" }}
           />
           <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
             <button
@@ -580,15 +449,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
 
       {/* History */}
       {history.length > 0 && (
-        <div
-          style={{
-            marginTop: 20,
-            padding: 12,
-            background: "#f8fafc",
-            borderRadius: 8,
-            fontSize: 13,
-          }}
-        >
+        <div style={{ marginTop: 20, padding: 12, background: "#f8fafc", borderRadius: 8, fontSize: 13 }}>
           <strong>Recent MOM History</strong>
           <ul style={{ marginTop: 8 }}>
             {history.map((h, i) => (
@@ -621,14 +482,9 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
       )}
 
       {/* Clear buttons */}
-      <button
-        type="button"
-        onClick={clearInputs}
-        style={{ marginTop: 10, width: "100%", padding: 10 }}
-      >
+      <button type="button" onClick={clearInputs} style={{ marginTop: 10, width: "100%", padding: 10 }}>
         Clear Inputs
       </button>
-
       <button
         type="button"
         onClick={clearHistory}
