@@ -4,6 +4,9 @@ import jsPDF from "jspdf";
 import ToolLayout from "./ToolLayout";
 import { createFFmpeg, fetchFile } from "@ffmpeg/ffmpeg";
 
+/**
+ * FFmpeg WASM (0.11.x API)
+ */
 const ffmpeg = createFFmpeg({ log: false });
 async function ensureFFmpegLoaded() {
   if (!ffmpeg.isLoaded()) {
@@ -11,7 +14,9 @@ async function ensureFFmpegLoaded() {
   }
 }
 
-// Warm up a Render free-tier backend by polling /health.
+/**
+ * Warm up Render free-tier backend
+ */
 async function warmUpServer(API_URL) {
   const deadline = Date.now() + 70_000;
   let lastErr = null;
@@ -27,9 +32,12 @@ async function warmUpServer(API_URL) {
   throw lastErr || new Error("Warm-up timed out");
 }
 
-// Extract audio from video and split into ~5-min chunks (WAV 16k mono).
+/**
+ * Extract audio and split into ~5‑min WAV chunks (16kHz mono)
+ */
 async function extractAndChunkAudio(videoFile, onProgress) {
   await ensureFFmpegLoaded();
+
   const inputExt = (videoFile.name.split(".").pop() || "mp4").toLowerCase();
   const inputName = `input.${inputExt}`;
   ffmpeg.FS("writeFile", inputName, await fetchFile(videoFile));
@@ -42,41 +50,55 @@ async function extractAndChunkAudio(videoFile, onProgress) {
   await ffmpeg.run("-i", wavName, "-f", "segment", "-segment_time", "300", "-c", "copy", "chunk%03d.wav");
 
   const entries = ffmpeg.FS("readdir", "/").filter((n) => /^chunk\d{3}\.wav$/.test(n)).sort();
-  const chunks = [];
+
   if (!entries.length) {
+    // fallback: ek hi chunk
     const data = ffmpeg.FS("readFile", wavName);
     try { ffmpeg.FS("unlink", wavName); } catch {}
     try { ffmpeg.FS("unlink", inputName); } catch {}
     return [{ name: "chunk000.wav", blob: new Blob([data.buffer], { type: "audio/wav" }), type: "audio/wav" }];
   }
+
+  const chunks = [];
   for (const name of entries) {
     const data = ffmpeg.FS("readFile", name);
     chunks.push({ name, blob: new Blob([data.buffer], { type: "audio/wav" }), type: "audio/wav" });
     try { ffmpeg.FS("unlink", name); } catch {}
   }
+
   try { ffmpeg.FS("unlink", wavName); } catch {}
   try { ffmpeg.FS("unlink", inputName); } catch {}
+
   return chunks;
 }
 
 const MeetingMom = ({ setActiveTab, onSuccess }) => {
+  // Files
   const [video, setVideo] = useState(null);
   const [image, setImage] = useState(null);
+
+  // Transcript (both modes)
   const [transcript, setTranscript] = useState("");
+
+  // AI toggle
   const [useAI, setUseAI] = useState(true);
 
+  // UI state
   const [fileKey, setFileKey] = useState(0);
   const [loading, setLoading] = useState(false);
   const [mom, setMom] = useState("");
   const [msg, setMsg] = useState("");
 
+  // History
   const [history, setHistory] = useState([]);
   const lastSuccessRef = useRef(0);
   const lastHistoryRef = useRef({ key: "", at: 0 });
 
+  // refs for file inputs
   const videoInputRef = useRef(null);
   const imageInputRef = useRef(null);
 
+  // Load history
   useEffect(() => {
     try {
       const raw = localStorage.getItem("meetingMomHistory");
@@ -137,6 +159,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
       return;
     }
 
+    // Basic validation
     if (useAI) {
       if (!transcript.trim() && !video && !image) {
         setMsg("Provide transcript or upload video/image for AI mode.");
@@ -149,7 +172,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
       }
     }
 
-    // Size guards — ONLY for Classic mode.
+    // Size guards — ONLY for Classic mode (AI me local chunking hota hai)
     const maxVideoMB = 25, maxImageMB = 10;
     if (!useAI) {
       if (video && video.size && video.size > maxVideoMB * 1024 * 1024) {
@@ -166,6 +189,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
     setMsg("");
     setMom("");
 
+    // Fire-and-forget warm ping (never blocks)
     try { await window.fetch(`${API_URL}/health`, { mode: "no-cors" }); } catch {}
 
     try {
@@ -183,14 +207,17 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
         let finalTranscript = "";
 
         if (hasVideo) {
+          // 1) Client-side extract & chunk
           setMsg("Extracting audio & chunking (this may take a few minutes) …");
           const chunks = await extractAndChunkAudio(video, (m) => setMsg(m));
+
+          // 2) Transcribe chunks via local Whisper
           const parts = [];
           for (let i = 0; i < chunks.length; i++) {
             setMsg(`Transcribing chunk ${i + 1}/${chunks.length} …`);
             const form = new FormData();
             form.append("file", new File([chunks[i].blob], chunks[i].name, { type: "audio/wav" }));
-            // Optional: form.append("language", "en"); // or "hi"
+            // Optional: language hint — form.append("language", "en"); // or "hi"
             const r = await axios.post(`${API_URL}/transcribe/local`, form, {
               headers: { "Content-Type": "multipart/form-data" },
               timeout: 120_000,
@@ -204,6 +231,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
           finalTranscript = (finalTranscript ? finalTranscript + "\n" : "") + transcript.trim();
         }
 
+        // 3) Generate MOM (image optional)
         setMsg("Generating MOM…");
         if (hasImage) {
           const form = new FormData();
@@ -224,6 +252,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
           generated = res?.data?.mom || "";
         }
       } else {
+        // Classic mode
         setMsg("Generating MOM (classic) …");
         const formData = new FormData();
         if (video) formData.append("video", video);
@@ -239,6 +268,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
       setMom(generated);
       setMsg(generated ? "MOM generated successfully ✅" : "No content generated, try again.");
 
+      // History snapshot
       const now = Date.now();
       const key = `${useAI ? "AI" : "Classic"}__${video?.name || ""}__${image?.name || ""}__${transcript
         .trim()
@@ -263,6 +293,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
         lastSuccessRef.current = now;
       }
 
+      // Clear inputs after success (keep transcript for quick edits)
       clearInputs();
     } catch (err) {
       console.error(err);
@@ -287,28 +318,6 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
         API: {import.meta.env.VITE_API_URL || "(not set)"}
       </div>
       <div style={{ fontSize: 12, opacity: 0.5 }}>MODE: {useAI ? "AI" : "Classic"}</div>
-
-      {/* AI Toggle */}
-      <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
-        <label style={{ fontWeight: 700 }}>
-          <input
-            type="checkbox"
-            checked={useAI}
-            onChange={(e) => {
-              setUseAI(e.target.checked);
-              setMsg("");
-              setMom("");
-            }}
-            style={{ marginRight: 8 }}
-          />
-          Use AI (Beta)
-        </label>
-        <div style={{ fontSize: 12, opacity: 0.7 }}>
-          {useAI
-            ? "AI can use video (transcribed in browser), image (optional) and/or transcript"
-            : "Classic uses a simple logic over files/transcript"}
-        </div>
-      </div>
 
       {/* Upload Video */}
       <div style={{ marginBottom: 15 }}>
