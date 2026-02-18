@@ -7,6 +7,7 @@ from typing import List, Optional
 import os, io, uuid, shutil
 import google.generativeai as genai
 import asyncio
+import html
 
 
 from PyPDF2 import PdfMerger, PdfReader, PdfWriter
@@ -19,19 +20,19 @@ from routers.pdf_to_image import router as pdf_image_router
 from routers.auth import router as auth_router
 from routers.user_data import router as user_data_router
 
+
 def get_supported_model():
     """
-    Try a few model identifiers in order.
-    Some environments require `models/` prefix,
-    some have 1.5-flash-8b available, etc.
+    Try a few model identifiers in order; some environments require
+    `models/` prefix, some only have -8b available.
     """
     candidates = [
-        "gemini-1.5-flash",
         "models/gemini-1.5-flash",
-        "gemini-1.5-flash-8b",
+        "gemini-1.5-flash",
         "models/gemini-1.5-flash-8b",
-        "gemini-1.5-pro",
+        "gemini-1.5-flash-8b",
         "models/gemini-1.5-pro",
+        "gemini-1.5-pro",
     ]
     last_err = None
     for name in candidates:
@@ -40,11 +41,11 @@ def get_supported_model():
         except Exception as e:
             last_err = e
             continue
-    # If none worked, raise a clean, actionable error
     raise HTTPException(
         status_code=500,
         detail=f"Gemini model not available. Last error: {last_err}"
     )
+
 
 # --- Gemini config ---
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -409,7 +410,6 @@ async def ai_mom_generator(transcript: str = Form(...)):
     if not transcript or not transcript.strip():
         raise HTTPException(status_code=400, detail="Transcript is required")
 
-    # Prompt (use plain '&', not HTML entity)
     prompt = f"""
 You are an expert corporate assistant. Convert the following meeting transcript
 into a clean, structured Minutes of Meeting (MOM). Be concise, factual, and avoid inventing details.
@@ -433,7 +433,6 @@ Rules:
 """.strip()
 
     try:
-        # Auto-fallback to a supported model for your key/region
         model = get_supported_model()
 
         loop = asyncio.get_running_loop()
@@ -445,7 +444,6 @@ Rules:
         except asyncio.TimeoutError:
             raise HTTPException(status_code=504, detail="AI generation timed out. Try again.")
 
-        # Extract and normalize any HTML entities (&amp; → &)
         text = (getattr(resp, "text", None) or "").strip()
         text = html.unescape(text)
 
@@ -456,5 +454,17 @@ Rules:
 
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@app.get("/ai/models")
+def ai_models():
+    try:
+        return {
+            "models": [
+                m.name for m in genai.list_models()
+                if "generateContent" in getattr(m, "supported_generation_methods", [])
+            ]
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
