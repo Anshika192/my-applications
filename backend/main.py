@@ -1,42 +1,75 @@
-
 from fastapi import FastAPI, Depends, HTTPException, File, UploadFile, BackgroundTasks, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from typing import List, Optional
-import os, io, uuid, shutil, asyncio, html
-import google.generativeai as genai
+import os, io, uuid, shutil, asyncio, html, tempfile, wave, struct
+from pathlib import Path
 
+import google.generativeai as genai
+from faster_whisper import WhisperModel
+
+# your other imports (PyPDF2, pdf2docx, pptx, pandas, models, schemas, database, routers...)
 from PyPDF2 import PdfMerger, PdfReader, PdfWriter
 from pdf2docx import Converter
 from pptx import Presentation
 import pandas as pd
-import wave, struct
 
 import models, schemas, database
 from routers.pdf_to_image import router as pdf_image_router
 from routers.auth import router as auth_router
 from routers.user_data import router as user_data_router
-import tempfile
-from pathlib import Path
-from faster_whisper import WhisperModel
 
-
-
-# ---------------- Gemini config + model picker ----------------
+# ---- Gemini env ----
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 genai.configure(api_key=GEMINI_API_KEY)
 if not GEMINI_API_KEY:
     print("[WARN] GEMINI_API_KEY not set. /ai/mom-generator will fail until configured.")
 
+# ------------------------ FastAPI App ------------------------
+app = FastAPI(
+    title="My Applications - MOM API",
+    version="0.1.0",
+    description="Classic MOM + AI MOM (Gemini) + Local Whisper transcription",
+)
 
-# Whisper config (CPU on Render free)
-WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")   # tiny | base | small | medium (bigger = better but slower)
-WHISPER_COMPUTE = os.getenv("WHISPER_COMPUTE", "cpu")  # keep "cpu" on Render free
-WHISPER_BEAM = int(os.getenv("WHISPER_BEAM", "1"))     # 1 for speed on free tier
+# ---- CORS registered EARLY ----
+origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    # "https://my-applications-mocha.vercel.app",  # optional fixed prod
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_origin_regex=r"^https://.*\.vercel\.app$",  # ALL Vercel previews
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+)
 
-# Load Whisper model once
+# COEP-friendly: CORP on all responses
+@app.middleware("http")
+async def add_corp_header(request, call_next):
+    resp = await call_next(request)
+    resp.headers["Cross-Origin-Resource-Policy"] = "cross-origin"
+    return resp
+
+# (Optional) debug to verify origin reaches the app
+@app.middleware("http")
+async def log_origin(request, call_next):
+    print("[CORS] Origin:", request.headers.get("origin"))
+    return await call_next(request)
+
+# Whisper env (set in Render env: tiny/tiny.en recommended)
+WHISPER_MODEL = os.getenv("WHISPER_MODEL", "tiny")   # tiny | tiny.en | base | small | medium
+WHISPER_COMPUTE = os.getenv("WHISPER_COMPUTE", "cpu")
+WHISPER_BEAM = int(os.getenv("WHISPER_BEAM", "1"))
+
+# Load Whisper once
 whisper_model: Optional[WhisperModel] = None
 try:
     whisper_model = WhisperModel(WHISPER_MODEL, device=WHISPER_COMPUTE, compute_type="int8")
@@ -45,14 +78,13 @@ except Exception as e:
     whisper_model = None
     print(f"[WARN] Faster-Whisper init failed: {e}")
 
-
 def _write_silence_wav(path, duration_sec=0.5, rate=16000):
     nframes = int(duration_sec * rate)
     with wave.open(path, "w") as w:
         w.setnchannels(1)
         w.setsampwidth(2)
         w.setframerate(rate)
-        silence = struct.pack("<h", 0)  # <<-- NOTE: '<h' (little-endian 16-bit)
+        silence = struct.pack("<h", 0)  # NOTE: "<h" (not &lt;h)
         w.writeframes(silence * nframes)
 
 @app.on_event("startup")
@@ -67,7 +99,6 @@ async def preload_whisper():
     try:
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav"); tmp.close()
         _write_silence_wav(tmp.name, 0.5)
-        # force weights download – ignore output
         segments, info = whisper_model.transcribe(
             tmp.name,
             beam_size=WHISPER_BEAM,
@@ -79,10 +110,24 @@ async def preload_whisper():
     except Exception as e:
         print("[Whisper preload] failed:", e)
     finally:
-        try:
-            os.remove(tmp.name)
-        except Exception:
-            pass
+        try: os.remove(tmp.name)
+        except Exception: pass
+
+# ---- mounts, DB, routers (NO ellipsis) ----
+for d in ["uploads", "output", "temp_uploads", "temp_mom"]:
+    os.makedirs(d, exist_ok=True)
+
+app.mount("/uploads",      StaticFiles(directory="uploads",      check_dir=False), name="uploads")
+app.mount("/output",       StaticFiles(directory="output",       check_dir=False), name="output")
+app.mount("/temp_uploads", StaticFiles(directory="temp_uploads", check_dir=False), name="temp_uploads")
+app.mount("/temp_mom",     StaticFiles(directory="temp_mom",     check_dir=False), name="temp_mom")
+
+models.Base.metadata.create_all(bind=database.engine)
+app.include_router(pdf_image_router)
+app.include_router(auth_router)
+app.include_router(user_data_router)
+
+get_db = database.get_db
 
 def pick_gemini_model():
     """
@@ -144,58 +189,7 @@ def _upload_to_gemini(upload: UploadFile):
             pass
         
        
-# ------------------------ FastAPI App ------------------------
-app = FastAPI(
-    title="My Applications - MOM API",
-    version="0.1.0",
-    description="Classic MOM + AI MOM (Gemini) + Local Whisper transcription",
-)
 
-# ---- CORS registered EARLY ----
-from fastapi.middleware.cors import CORSMiddleware
-
-origins = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://localhost:3000",
-    # "https://my-applications-mocha.vercel.app",  # optional prod
-]
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_origin_regex=r"^https://.*\.vercel\.app$",  # ALL Vercel previews
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["*"],
-)
-
-# COEP-friendly: CORP on all responses
-@app.middleware("http")
-async def add_corp_header(request, call_next):
-    resp = await call_next(request)
-    resp.headers["Cross-Origin-Resource-Policy"] = "cross-origin"
-    return resp
-
-# (Optional) debug to verify origin reaches the app
-@app.middleware("http")
-async def log_origin(request, call_next):
-    print("[CORS] Origin:", request.headers.get("origin"))
-    return await call_next(request)
-
-# ---- now mounts, DB init, routers ----
-for d in ["uploads", "output", "temp_uploads", "temp_mom"]:
-    os.makedirs(d, exist_ok=True)
-
-app.mount("/uploads", StaticFiles(directory="uploads", check_dir=False), name="uploads")
-...
-models.Base.metadata.create_all(bind=database.engine)
-app.include_router(pdf_image_router)
-app.include_router(auth_router)
-app.include_router(user_data_router)
-
-
-get_db = database.get_db
 
 
 # ---- Whisper init ----
