@@ -19,12 +19,31 @@ from routers.auth import router as auth_router
 from routers.user_data import router as user_data_router
 import tempfile
 from pathlib import Path
+from faster_whisper import WhisperModel
+
+
 
 # ---------------- Gemini config + model picker ----------------
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 genai.configure(api_key=GEMINI_API_KEY)
 if not GEMINI_API_KEY:
     print("[WARN] GEMINI_API_KEY not set. /ai/mom-generator will fail until configured.")
+
+
+# Whisper config (CPU on Render free)
+WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")   # tiny | base | small | medium (bigger = better but slower)
+WHISPER_COMPUTE = os.getenv("WHISPER_COMPUTE", "cpu")  # keep "cpu" on Render free
+WHISPER_BEAM = int(os.getenv("WHISPER_BEAM", "1"))     # 1 for speed on free tier
+
+# Load Whisper model once
+whisper_model: Optional[WhisperModel] = None
+try:
+    whisper_model = WhisperModel(WHISPER_MODEL, device=WHISPER_COMPUTE, compute_type="int8")
+    print(f"[Whisper] Loaded model='{WHISPER_MODEL}' device='{WHISPER_COMPUTE}'")
+except Exception as e:
+    whisper_model = None
+    print(f"[WARN] Faster-Whisper init failed: {e}")
+
 
 def pick_gemini_model():
     """
@@ -84,6 +103,15 @@ def _upload_to_gemini(upload: UploadFile):
             os.remove(tmp_path)
         except Exception:
             pass
+        
+        
+# ------------------------ FastAPI App ------------------------
+app = FastAPI(
+    title="My Applications - MOM API",
+    version="0.1.0",
+    description="Classic MOM + AI MOM (Gemini) + Local Whisper transcription",
+)
+
 # ---------------- app + mounts ----------------
 for d in ["uploads", "output", "temp_uploads", "temp_mom"]:
     os.makedirs(d, exist_ok=True)
@@ -338,65 +366,26 @@ async def pdf_to_word(background_tasks: BackgroundTasks, file: UploadFile = File
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-# ---------------- Classic MOM (demo) ----------------
-@app.post("/meeting-mom")
-async def generate_meeting_mom(
-    video: Optional[UploadFile] = File(None),
-    image: Optional[UploadFile] = File(None),
-    transcript: Optional[str] = Form(None)
-):
-    if not video and not image and not transcript:
-        raise HTTPException(status_code=400, detail="Video, image or transcript required")
-
-    final_transcript = transcript or """
-        Project discussion happened.
-        Frontend completed.
-        Backend APIs in progress.
-        Release delayed by one week.
-    """
-
-    mom_text = f"""
-    MEETING TITLE: Project Status Meeting
-
-    AGENDA:
-    - Project updates
-    - Risks
-    - Timelines
-
-    DISCUSSION:
-    {final_transcript}
-
-    DECISIONS:
-    - Release postponed by 1 week
-
-    ACTION ITEMS:
-    - Backend APIs completion (Owner: Backend Team)
-    - Testing start after backend completion
-    """.strip()
-    return {"mom": mom_text}
-
-
-# ---------------- AI MOM (Gemini) ----------------
+# ------------------------ AI MOM (Gemini) ------------------------
 @app.post("/ai/mom-generator")
 async def ai_mom_generator(
     transcript: Optional[str] = Form(None),
     video: Optional[UploadFile] = File(None),
     image: Optional[UploadFile] = File(None),
 ):
-    if not os.getenv("GEMINI_API_KEY"):
+    if not GEMINI_API_KEY:
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured on server.")
 
     # At least one input must be present
     if not (transcript and transcript.strip()) and not video and not image:
         raise HTTPException(status_code=400, detail="Provide transcript or upload video/image")
 
-    # Size guards (free-tier friendly; adjust if needed)
-    if video and video.size and video.size > 25 * 1024 * 1024:
+    # Size guards (tune for your infra)
+    if getattr(video, "size", None) and video.size > 25 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="Video too large (>25MB)")
-    if image and image.size and image.size > 10 * 1024 * 1024:
+    if getattr(image, "size", None) and image.size > 10 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="Image too large (>10MB)")
 
-    # Prompt (plain '&', not HTML entity)
     base_prompt = """
 You are an expert corporate assistant. Convert the following inputs into a clean, structured Minutes of Meeting (MOM).
 Be concise and factual. If both media and transcript are provided, use transcript as primary and media as context.
@@ -416,9 +405,8 @@ Rules:
 - No extra commentary outside these sections
 """.strip()
 
-    parts = [base_prompt]
+    parts: List = [base_prompt]
 
-    # Add transcript if present
     if transcript and transcript.strip():
         parts.append(f'Transcript:\n"""{transcript.strip()}"""')
 
@@ -435,12 +423,11 @@ Rules:
             parts.append(gvid)
 
         model = pick_gemini_model()
-
         loop = asyncio.get_running_loop()
         try:
             resp = await asyncio.wait_for(
                 loop.run_in_executor(None, model.generate_content, parts),
-                timeout=60,  # media + generation ko thoda zyada time do
+                timeout=60,  # media + generation
             )
         except asyncio.TimeoutError:
             raise HTTPException(status_code=504, detail="AI generation timed out. Try again.")
@@ -453,9 +440,58 @@ Rules:
         return {"mom": text}
 
     finally:
-        # Optional: Gemini storage ko clean karo (quota bachane ke liye)
+        # Clean up Gemini storage (quota hygiene)
         for f in uploaded:
             try:
                 genai.delete_file(f.name)
             except Exception:
                 pass
+
+# ------------------------ Local Whisper Transcription ------------------------
+@app.post("/transcribe/local")
+async def transcribe_local(file: UploadFile = File(...), language: Optional[str] = Form(None)):
+    """
+    Accepts ~5-min audio chunk (mp3/m4a/wav) and returns text using local faster-whisper.
+    No external API key needed.
+    """
+    if whisper_model is None:
+        raise HTTPException(status_code=500, detail="Local Whisper model not initialized")
+
+    # Save chunk to temp
+    suffix = os.path.splitext(file.filename or "chunk.mp3")[1] or ".mp3"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        shutil.copyfileobj(file.file, tmp)
+        tmp_path = tmp.name
+
+    try:
+        segments, info = whisper_model.transcribe(
+            tmp_path,
+            beam_size=WHISPER_BEAM,
+            language=language,        # e.g., "en" | "hi" (optional)
+            vad_filter=True,
+            without_timestamps=True,  # we just need plain text
+        )
+        text = "".join(seg.text for seg in segments).strip()
+        if not text:
+            raise HTTPException(status_code=502, detail="Whisper produced empty text")
+        return {"text": text}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        try:
+            os.remove(tmp_path)
+        except Exception:
+            pass
+
+# ------------------------ AI Models Catalog (debug) ------------------------
+@app.get("/ai/models")
+def ai_models():
+    try:
+        models = [
+            m.name
+            for m in genai.list_models()
+            if "generateContent" in getattr(m, "supported_generation_methods", [])
+        ]
+        return {"models": models}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
