@@ -1,14 +1,12 @@
+
 from fastapi import FastAPI, Depends, HTTPException, File, UploadFile, BackgroundTasks, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from typing import List, Optional
-import os, io, uuid, shutil
+import os, io, uuid, shutil, asyncio, html
 import google.generativeai as genai
-import asyncio
-import html
-
 
 from PyPDF2 import PdfMerger, PdfReader, PdfWriter
 from pdf2docx import Converter
@@ -21,13 +19,17 @@ from routers.auth import router as auth_router
 from routers.user_data import router as user_data_router
 
 
+# ---------------- Gemini config + model picker ----------------
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+genai.configure(api_key=GEMINI_API_KEY)
+if not GEMINI_API_KEY:
+    print("[WARN] GEMINI_API_KEY not set. /ai/mom-generator will fail until configured.")
+
 def pick_gemini_model():
     """
-    Prefer latest stable, then fall back to other available models.
-    Reads the live model catalog for your key and picks the first match.
+    Prefer 2.5 Flash, else fallback to other available models.
     You can override with env: GEMINI_MODEL="models/gemini-2.5-flash"
     """
-    # If you want to force a specific model, set it in Render env
     forced = os.getenv("GEMINI_MODEL")
     if forced:
         try:
@@ -35,119 +37,87 @@ def pick_gemini_model():
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Forced model '{forced}' failed: {e}")
 
-    # Preferred order for text generation (based on your /ai/models output)
     preferred = [
         "models/gemini-2.5-flash",
         "models/gemini-2.5-pro",
         "models/gemini-2.0-flash",
         "models/gemini-2.0-flash-001",
-        # keep some fallbacks just in case
         "models/gemini-flash-latest",
         "models/gemini-pro-latest",
     ]
-
     try:
         available = [
             m.name for m in genai.list_models()
             if "generateContent" in getattr(m, "supported_generation_methods", [])
         ]
-    except Exception as e:
-        # If listing fails, still try preferred in order
+    except Exception:
         available = []
 
-    # Try intersection first
     for name in preferred:
         if not available or name in available:
-            try:
-                return genai.GenerativeModel(name)
-            except Exception:
-                continue
+            try: return genai.GenerativeModel(name)
+            except Exception: continue
 
-    # As a very last resort, try any available that supports generateContent
     for name in available:
-        try:
-            return genai.GenerativeModel(name)
-        except Exception:
-            continue
+        try: return genai.GenerativeModel(name)
+        except Exception: continue
 
     raise HTTPException(status_code=500, detail="No suitable Gemini model available for generateContent.")
 
 
-
-# --- Gemini config ---
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-genai.configure(api_key=GEMINI_API_KEY)
-if not GEMINI_API_KEY:
-    print("[WARN] GEMINI_API_KEY not set. /ai/mom-generator will fail until configured.")
-
-
-# Create required dirs (Render's file system starts empty each deploy)
+# ---------------- app + mounts ----------------
 for d in ["uploads", "output", "temp_uploads", "temp_mom"]:
     os.makedirs(d, exist_ok=True)
 
-
-# ------------------ app ------------------
 app = FastAPI()
 
-
-# Safe mounts (won't crash if dir is temporarily missing)
 app.mount("/uploads",      StaticFiles(directory="uploads",      check_dir=False), name="uploads")
 app.mount("/output",       StaticFiles(directory="output",       check_dir=False), name="output")
 app.mount("/temp_uploads", StaticFiles(directory="temp_uploads", check_dir=False), name="temp_uploads")
 app.mount("/temp_mom",     StaticFiles(directory="temp_mom",     check_dir=False), name="temp_mom")
 
-# DB tables
 models.Base.metadata.create_all(bind=database.engine)
 
-# Routers
 app.include_router(pdf_image_router)
 app.include_router(auth_router)
 app.include_router(user_data_router)
 
-# CORS
-origins = [    
+# ---------------- CORS ----------------
+origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:3000",
-    # keep any explicit prod domains you want to allow:
     "https://my-applications-mocha.vercel.app",
     "https://minapplications-frontend.onrender.com",
 ]
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_origin_regex=r"https://.*\.vercel\.app$",  # <— allow ALL Vercel preview URLs
+    allow_origin_regex=r"https://.*\.vercel\.app$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-
-# Share the DB session dependency
 get_db = database.get_db
 
-# ---- Health check (useful for Render) ----
+# ---------------- Health + basic routes ----------------
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
-# ------------------ CRUD sample ------------------
-@app.get("/applications", response_model=List[schemas.ApplicationRead])
-def read_applications(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    return db.query(models.Application).offset(skip).limit(limit).all()
-
-# in backend/main.py (near other routes)
 @app.get("/")
 def root():
     return {"status": "ok", "service": "my-applications"}
 
+@app.get("/applications", response_model=List[schemas.ApplicationRead])
+def read_applications(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    return db.query(models.Application).offset(skip).limit(limit).all()
+
 @app.post("/applications", response_model=schemas.ApplicationRead)
 def create_application(application: schemas.ApplicationCreate, db: Session = Depends(get_db)):
     db_application = models.Application(**application.dict())
-    db.add(db_application)
-    db.commit()
-    db.refresh(db_application)
+    db.add(db_application); db.commit(); db.refresh(db_application)
     return db_application
 
 
@@ -349,7 +319,7 @@ async def pdf_to_word(background_tasks: BackgroundTasks, file: UploadFile = File
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-# ------------------ MEETING MOM (demo) ------------------
+# ---------------- Classic MOM (demo) ----------------
 @app.post("/meeting-mom")
 async def generate_meeting_mom(
     video: Optional[UploadFile] = File(None),
@@ -384,58 +354,18 @@ async def generate_meeting_mom(
     - Backend APIs completion (Owner: Backend Team)
     - Testing start after backend completion
     """.strip()
-
     return {"mom": mom_text}
 
-# ------------------ PPT TO EXCEL ------------------
-@app.post("/convert/ppt-to-excel")
-async def ppt_to_excel(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
-    if not file.filename.endswith((".ppt", ".pptx")):
-        raise HTTPException(status_code=400, detail="Only PPT or PPTX files allowed")
 
-    temp_dir = f"temp_ppt_{uuid.uuid4()}"
-    os.makedirs(temp_dir, exist_ok=True)
-
-    ppt_path = os.path.join(temp_dir, file.filename)
-    excel_path = os.path.join(temp_dir, "converted.xlsx")
-
-    try:
-        with open(ppt_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-
-        prs = Presentation(ppt_path)
-        rows = []
-        slide_no = 1
-        for slide in prs.slides:
-            for shape in slide.shapes:
-                if getattr(shape, "has_text_frame", False):
-                    text = shape.text.strip()
-                    if text:
-                        rows.append({"Slide No": slide_no, "Content": text})
-            slide_no += 1
-
-        if not rows:
-            raise HTTPException(status_code=400, detail="No text found in PPT")
-
-        df = pd.DataFrame(rows)
-        df.to_excel(excel_path, index=False)
-
-        background_tasks.add_task(shutil.rmtree, temp_dir, ignore_errors=True)
-        return FileResponse(
-            excel_path,
-            filename="ppt_content.xlsx",
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-    except Exception as e:
-        shutil.rmtree(temp_dir, ignore_errors=True)
-        raise HTTPException(status_code=500, detail=str(e))
-    
+# ---------------- AI MOM (Gemini) ----------------
 @app.post("/ai/mom-generator")
 async def ai_mom_generator(transcript: str = Form(...)):
     if not os.getenv("GEMINI_API_KEY"):
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured on server.")
     if not transcript or not transcript.strip():
         raise HTTPException(status_code=400, detail="Transcript is required")
+    if len(transcript) > 20000:
+        raise HTTPException(status_code=413, detail="Transcript too large (max ~20k chars).")
 
     prompt = f"""
 You are an expert corporate assistant. Convert the following meeting transcript
@@ -461,7 +391,6 @@ Rules:
 
     try:
         model = pick_gemini_model()
-
         loop = asyncio.get_running_loop()
         try:
             resp = await asyncio.wait_for(
@@ -475,14 +404,15 @@ Rules:
         text = html.unescape(text)
         if not text:
             raise HTTPException(status_code=502, detail="AI returned empty response")
-
         return {"mom": text}
 
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    
+
+
+# ---------------- AI model catalog ----------------
 @app.get("/ai/models")
 def ai_models():
     try:
@@ -494,3 +424,26 @@ def ai_models():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------- MOM persistence ----------------
+@app.post("/mom/save")
+def mom_save(mode: str = Form("AI"),
+             transcript: str = Form(...),
+             mom: str = Form(...),
+             db: Session = Depends(get_db)):
+    rec = models.MomRecord(mode=mode, transcript=transcript, mom=mom)
+    db.add(rec); db.commit(); db.refresh(rec)
+    return {"id": rec.id, "created_at": rec.created_at}
+
+@app.get("/mom/recent")
+def mom_recent(limit: int = 20, db: Session = Depends(get_db)):
+    q = db.query(models.MomRecord).order_by(models.MomRecord.id.desc()).limit(limit).all()
+    return [
+        {
+            "id": r.id, "mode": r.mode, "created_at": r.created_at,
+            "transcriptPreview": (r.transcript[:120] + ("..." if len(r.transcript) > 120 else "")),
+            "momPreview": (r.mom[:200] + ("..." if len(r.mom) > 200 else "")),
+        }
+        for r in q
+    ]

@@ -3,6 +3,7 @@ from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from database import Base
 
+
 class Application(Base):
     __tablename__ = "applications"
 
@@ -122,3 +123,14 @@ class UserSuggestion(Base):
     note = Column(String(1000), nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+
+class MomRecord(Base):
+    __tablename__ = "mom_records"
+    id = Column(Integer, primary_key=True, index=True)
+    mode = Column(String(20), default="AI")     # "AI" or "Classic"
+    transcript = Column(Text, nullable=False)
+    mom = Column(Text, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+
