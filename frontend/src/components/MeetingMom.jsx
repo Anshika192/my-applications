@@ -118,6 +118,10 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
       return;
     }
 
+    <div style={{fontSize: 12, opacity: 0.5, marginTop: 6}}>
+  API: {import.meta.env.VITE_API_URL}
+</div>
+
     // Basic validation
     if (useAI) {
       if (!transcript.trim()) {
@@ -144,6 +148,12 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
     setLoading(true);
     setMsg("");
     setMom("");
+
+    
+try {
+  await window.fetch(`${API_URL}/health`, { mode: "no-cors" });
+} catch (_) {}
+
 
     try {
       let generated = "";
