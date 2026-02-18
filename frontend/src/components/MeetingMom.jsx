@@ -2,15 +2,26 @@ import React, { useEffect, useRef, useState } from "react";
 import axios from "axios";
 import jsPDF from "jspdf";
 import ToolLayout from "./ToolLayout";
+import { createFFmpeg, fetchFile } from "@ffmpeg/ffmpeg";
+
+/**
+ * FFmpeg WASM instance (lazy-loaded)
+ */
+const ffmpeg = createFFmpeg({ log: false }); // set log:true for debugging
+
+async function ensureFFmpegLoaded() {
+  if (!ffmpeg.isLoaded()) {
+    await ffmpeg.load();
+  }
+}
 
 /**
  * Warm up a Render free-tier backend by polling /health.
  * First cold start can take ~30–60s. We poll up to ~70s.
  */
 async function warmUpServer(API_URL) {
-  const deadline = Date.now() + 70_000; // ~70s budget
+  const deadline = Date.now() + 70_000; // ~70s
   let lastErr = null;
-
   while (Date.now() < deadline) {
     try {
       const res = await axios.get(`${API_URL}/health`, { timeout: 10_000 });
@@ -18,11 +29,96 @@ async function warmUpServer(API_URL) {
     } catch (e) {
       lastErr = e;
     }
-    // wait 3s and retry
     await new Promise((r) => setTimeout(r, 3000));
   }
-  // If backend woke but /health lagged, let the main call try anyway.
   throw lastErr || new Error("Warm-up timed out");
+}
+
+/**
+ * Extract audio from video and split into ~5-min chunks (WAV 16k mono).
+ * Returns: [{ name, blob, type:'audio/wav' }, ...]
+ */
+async function extractAndChunkAudio(videoFile, onProgress) {
+  await ensureFFmpegLoaded();
+
+  // Write input file to FS
+  const inputName = "input_video";
+  const ext = (videoFile.name.split(".").pop() || "mp4").toLowerCase();
+  const inputFile = `${inputName}.${ext}`;
+  ffmpeg.FS("writeFile", inputFile, await fetchFile(videoFile));
+
+  // 1) Extract to 16kHz mono WAV (PCM), very compatible for Whisper
+  onProgress?.("Extracting audio (16 kHz mono) …");
+  const wavName = "audio.wav";
+  await ffmpeg.run(
+    "-i",
+    inputFile,
+    "-vn",
+    "-ac",
+    "1",
+    "-ar",
+    "16000",
+    "-f",
+    "wav",
+    wavName
+  );
+
+  // 2) Segment into 300s (~5 min) chunks without re-encoding
+  onProgress?.("Splitting into 5‑minute chunks …");
+  await ffmpeg.run(
+    "-i",
+    wavName,
+    "-f",
+    "segment",
+    "-segment_time",
+    "300",
+    "-c",
+    "copy",
+    "chunk%03d.wav"
+  );
+
+  // Collect outputs
+  const entries = ffmpeg.FS("readdir", "/")
+    .filter((n) => /^chunk\d{3}\.wav$/.test(n))
+    .sort();
+
+  if (!entries.length) {
+    // In rare cases, segment muxer may fail; fall back to full wav as one chunk
+    const data = ffmpeg.FS("readFile", wavName);
+    ffmpeg.FS("unlink", wavName);
+    ffmpeg.FS("unlink", inputFile);
+    return [
+      {
+        name: "chunk000.wav",
+        blob: new Blob([data.buffer], { type: "audio/wav" }),
+        type: "audio/wav",
+      },
+    ];
+  }
+
+  const chunks = [];
+  for (const name of entries) {
+    const data = ffmpeg.FS("readFile", name);
+    chunks.push({
+      name,
+      blob: new Blob([data.buffer], { type: "audio/wav" }),
+      type: "audio/wav",
+    });
+    // cleanup chunk to free memory
+    try {
+      ffmpeg.FS("unlink", name);
+    } catch {}
+  }
+
+  // cleanup large intermediates
+  try {
+    ffmpeg.FS("unlink", wavName);
+  } catch {}
+  try {
+    ffmpeg.FS("unlink", inputFile);
+  } catch {}
+
+  return chunks;
 }
 
 const MeetingMom = ({ setActiveTab, onSuccess }) => {
@@ -62,7 +158,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
     }
   }, []);
 
-  // ---- Save history (functional update to avoid stale state) ----
+  // ---- Save history ----
   const saveHistory = (data) => {
     setHistory((prev) => {
       const updated = [data, ...prev].slice(0, 10);
@@ -71,14 +167,14 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
     });
   };
 
-  // ---- Clear only inputs (files, optionally transcript) ----
+  // ---- Clear only inputs ----
   const clearInputs = () => {
     setVideo(null);
     setImage(null);
-    // setTranscript(""); // <- uncomment if you also want to clear text
+    // setTranscript(""); // uncomment to also clear text
     if (videoInputRef.current) videoInputRef.current.value = null;
     if (imageInputRef.current) imageInputRef.current.value = null;
-    setFileKey((k) => k + 1); // remount file inputs
+    setFileKey((k) => k + 1);
     setMsg("");
   };
 
@@ -112,6 +208,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
   // ---- Generate MOM ----
   const handleGenerate = async () => {
     const API_URL = import.meta.env.VITE_API_URL;
+    console.log("useAI =", useAI, "videoMB =", video ? (video.size / 1024 / 1024).toFixed(2) : 0);
 
     if (!API_URL) {
       setMsg("❌ Missing VITE_API_URL in environment.");
@@ -120,7 +217,6 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
 
     // Basic validation
     if (useAI) {
-      // In AI mode, at least one of transcript/video/image should be present
       if (!transcript.trim() && !video && !image) {
         setMsg("Provide transcript or upload video/image for AI mode.");
         return;
@@ -132,17 +228,18 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
       }
     }
 
-    // Optional free-plan file size guards
-    // Tune as per your use-case or remove if not needed
+    // Size guards — ONLY for Classic mode.
     const maxVideoMB = 25;
     const maxImageMB = 10;
-    if (video && video.size && video.size > maxVideoMB * 1024 * 1024) {
-      setMsg(`Video is too large (max ~${maxVideoMB} MB).`);
-      return;
-    }
-    if (image && image.size && image.size > maxImageMB * 1024 * 1024) {
-      setMsg(`Image is too large (max ~${maxImageMB} MB).`);
-      return;
+    if (!useAI) {
+      if (video && video.size && video.size > maxVideoMB * 1024 * 1024) {
+        setMsg(`Video is too large (max ~${maxVideoMB} MB).`);
+        return;
+      }
+      if (image && image.size && image.size > maxImageMB * 1024 * 1024) {
+        setMsg(`Image is too large (max ~${maxImageMB} MB).`);
+        return;
+      }
     }
 
     setLoading(true);
@@ -163,29 +260,59 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
         try {
           await warmUpServer(API_URL);
         } catch {
-          // Continue anyway; sometimes /health lags while app is up
+          // continue anyway
         }
 
+        setMsg("Preparing media/transcript…");
+
+        const hasVideo = Boolean(video);
+        const hasImage = Boolean(image);
+        const hasTranscript = Boolean(transcript.trim());
+
+        let finalTranscript = "";
+
+        if (hasVideo) {
+          // 1) Client-side extract & chunk (WAV 16k mono)
+          setMsg("Extracting audio & chunking (this may take a few minutes) …");
+          const chunks = await extractAndChunkAudio(video, (m) => setMsg(m));
+
+          // 2) Transcribe chunks via local Whisper endpoint
+          const parts = [];
+          for (let i = 0; i < chunks.length; i++) {
+            setMsg(`Transcribing chunk ${i + 1}/${chunks.length} …`);
+            const form = new FormData();
+            form.append(
+              "file",
+              new File([chunks[i].blob], chunks[i].name, { type: "audio/wav" })
+            );
+            // Optional language hint: form.append("language", "en"); // or "hi"
+            const r = await axios.post(`${API_URL}/transcribe/local`, form, {
+              headers: { "Content-Type": "multipart/form-data" },
+              timeout: 120_000,
+            });
+            parts.push(r?.data?.text || "");
+          }
+          finalTranscript = parts.join("\n").trim();
+        }
+
+        if (hasTranscript) {
+          finalTranscript = (finalTranscript ? finalTranscript + "\n" : "") + transcript.trim();
+        }
+
+        // 3) Generate MOM (image optional; transcript optional when image present)
         setMsg("Generating MOM…");
-
-        const hasFiles = Boolean(video || image);
-        if (hasFiles) {
-          // ✅ AI with media → multipart
+        if (hasImage) {
           const form = new FormData();
-          if (video) form.append("video", video);
-          if (image) form.append("image", image);
-          if (transcript.trim()) form.append("transcript", transcript.trim());
-
+          form.append("image", image);
+          if (finalTranscript) form.append("transcript", finalTranscript);
           const res = await axios.post(`${API_URL}/ai/mom-generator`, form, {
             headers: { "Content-Type": "multipart/form-data" },
             timeout: 120_000,
           });
           generated = res?.data?.mom || "";
         } else {
-          // ✅ Only transcript → urlencoded
           const data = new URLSearchParams();
-          data.set("transcript", transcript.trim());
-
+          if (finalTranscript) data.set("transcript", finalTranscript);
           const res = await axios.post(`${API_URL}/ai/mom-generator`, data, {
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
             timeout: 120_000,
@@ -193,7 +320,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
           generated = res?.data?.mom || "";
         }
       } else {
-        // Classic route supports files + transcript (multipart/form-data)
+        // Classic mode: send files/transcript directly
         setMsg("Generating MOM (classic) …");
         const formData = new FormData();
         if (video) formData.append("video", video);
@@ -202,17 +329,13 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
 
         const res = await axios.post(`${API_URL}/meeting-mom`, formData, {
           headers: { "Content-Type": "multipart/form-data" },
-          timeout: 90_000, // might be longer for files
+          timeout: 90_000,
         });
-
         generated = res?.data?.mom || "";
       }
 
       setMom(generated);
       setMsg(generated ? "MOM generated successfully ✅" : "No content generated, try again.");
-
-      // Clear file inputs after success (keep transcript for quick edits)
-      clearInputs();
 
       // History snapshot
       const now = Date.now();
@@ -240,6 +363,9 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
         onSuccess?.("meeting-mom", "Meeting MOM Generator");
         lastSuccessRef.current = now;
       }
+
+      // Clear file inputs after success (keep transcript for quick edits)
+      clearInputs();
     } catch (err) {
       console.error(err);
       const status = err?.response?.status;
@@ -261,10 +387,11 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
       description="Upload meeting video/screenshot or paste transcript to generate Minutes of Meeting"
       onBack={() => setActiveTab?.("dashboard")}
     >
-      {/* Debug API URL (remove later if you want) */}
+      {/* Debug badges (remove later if you want) */}
       <div style={{ fontSize: 12, opacity: 0.5, marginTop: 6 }}>
         API: {import.meta.env.VITE_API_URL || "(not set)"}
       </div>
+      <div style={{ fontSize: 12, opacity: 0.5 }}>MODE: {useAI ? "AI" : "Classic"}</div>
 
       {/* AI Toggle */}
       <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
@@ -283,12 +410,12 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
         </label>
         <div style={{ fontSize: 12, opacity: 0.7 }}>
           {useAI
-            ? "AI can use transcript and/or uploaded media"
+            ? "AI can use video (transcribed in browser), image (optional) and/or transcript"
             : "Classic uses a simple logic over files/transcript"}
         </div>
       </div>
 
-      {/* Upload Video (available in both modes) */}
+      {/* Upload Video (both modes) */}
       <div style={{ marginBottom: 15 }}>
         <label style={{ display: "block", marginBottom: 6, fontSize: 14 }}>
           Upload Meeting Video (optional)
@@ -311,7 +438,7 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
         )}
       </div>
 
-      {/* Upload Image (available in both modes) */}
+      {/* Upload Image (both modes) */}
       <div style={{ marginBottom: 15 }}>
         <label style={{ display: "block", marginBottom: 6, fontSize: 14 }}>
           Upload Screenshot (OCR) (optional)
