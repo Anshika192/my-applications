@@ -130,21 +130,32 @@ app.include_router(auth_router)
 app.include_router(user_data_router)
 
 # ---------------- CORS ----------------
+
 origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:3000",
-    "https://my-applications-mocha.vercel.app",
-    "https://minapplications-frontend.onrender.com",
+    # (optional) apna fixed prod domain agar hai to yahan add karo:
+    # "https://my-applications-mocha.vercel.app",
 ]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_origin_regex=r"https://.*\.vercel\.app$",
+    allow_origin_regex=r"^https://.*\.vercel\.app$",  # ✅ ALL Vercel previews
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
+
+# ✅ Add CORP header on every response (COEP friendlier)
+@app.middleware("http")
+async def add_corp_header(request, call_next):
+    resp = await call_next(request)
+    resp.headers["Cross-Origin-Resource-Policy"] = "cross-origin"
+    return resp
+
 
 get_db = database.get_db
 
