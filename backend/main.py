@@ -21,30 +21,57 @@ from routers.auth import router as auth_router
 from routers.user_data import router as user_data_router
 
 
-def get_supported_model():
+def pick_gemini_model():
     """
-    Try a few model identifiers in order; some environments require
-    `models/` prefix, some only have -8b available.
+    Prefer latest stable, then fall back to other available models.
+    Reads the live model catalog for your key and picks the first match.
+    You can override with env: GEMINI_MODEL="models/gemini-2.5-flash"
     """
-    candidates = [
-        "models/gemini-1.5-flash",
-        "gemini-1.5-flash",
-        "models/gemini-1.5-flash-8b",
-        "gemini-1.5-flash-8b",
-        "models/gemini-1.5-pro",
-        "gemini-1.5-pro",
+    # If you want to force a specific model, set it in Render env
+    forced = os.getenv("GEMINI_MODEL")
+    if forced:
+        try:
+            return genai.GenerativeModel(forced)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Forced model '{forced}' failed: {e}")
+
+    # Preferred order for text generation (based on your /ai/models output)
+    preferred = [
+        "models/gemini-2.5-flash",
+        "models/gemini-2.5-pro",
+        "models/gemini-2.0-flash",
+        "models/gemini-2.0-flash-001",
+        # keep some fallbacks just in case
+        "models/gemini-flash-latest",
+        "models/gemini-pro-latest",
     ]
-    last_err = None
-    for name in candidates:
+
+    try:
+        available = [
+            m.name for m in genai.list_models()
+            if "generateContent" in getattr(m, "supported_generation_methods", [])
+        ]
+    except Exception as e:
+        # If listing fails, still try preferred in order
+        available = []
+
+    # Try intersection first
+    for name in preferred:
+        if not available or name in available:
+            try:
+                return genai.GenerativeModel(name)
+            except Exception:
+                continue
+
+    # As a very last resort, try any available that supports generateContent
+    for name in available:
         try:
             return genai.GenerativeModel(name)
-        except Exception as e:
-            last_err = e
+        except Exception:
             continue
-    raise HTTPException(
-        status_code=500,
-        detail=f"Gemini model not available. Last error: {last_err}"
-    )
+
+    raise HTTPException(status_code=500, detail="No suitable Gemini model available for generateContent.")
+
 
 
 # --- Gemini config ---
@@ -433,7 +460,7 @@ Rules:
 """.strip()
 
     try:
-        model = get_supported_model()
+        model = pick_gemini_model()
 
         loop = asyncio.get_running_loop()
         try:
@@ -446,7 +473,6 @@ Rules:
 
         text = (getattr(resp, "text", None) or "").strip()
         text = html.unescape(text)
-
         if not text:
             raise HTTPException(status_code=502, detail="AI returned empty response")
 
