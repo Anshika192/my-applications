@@ -9,8 +9,6 @@ from pathlib import Path
 
 import google.generativeai as genai
 from faster_whisper import WhisperModel
-
-# your other imports (PyPDF2, pdf2docx, pptx, pandas, models, schemas, database, routers...)
 from PyPDF2 import PdfMerger, PdfReader, PdfWriter
 from pdf2docx import Converter
 from pptx import Presentation
@@ -21,18 +19,16 @@ from routers.pdf_to_image import router as pdf_image_router
 from routers.auth import router as auth_router
 from routers.user_data import router as user_data_router
 
-# ---- Gemini env ----
+# ---- Environment Variables ----
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+WHISPER_MODEL = os.getenv("WHISPER_MODEL", "tiny.en")
+WHISPER_BEAM = int(os.getenv("WHISPER_BEAM", "1"))
+WHISPER_COMPUTE = os.getenv("WHISPER_COMPUTE", "cpu")
+
 genai.configure(api_key=GEMINI_API_KEY)
-if not GEMINI_API_KEY:
-    print("[WARN] GEMINI_API_KEY not set. /ai/mom-generator will fail until configured.")
 
 # ------------------------ FastAPI App ------------------------
-app = FastAPI(
-    title="My Applications - MOM API",
-    version="0.1.0",
-    description="Classic MOM + AI MOM (Gemini) + Local Whisper transcription",
-)
+app = FastAPI(title="My Applications - MOM API", version="0.1.0")
 
 # ---- CORS registered EARLY ----
 origins = [
@@ -41,14 +37,13 @@ origins = [
     "http://localhost:3000",
     # "https://my-applications-mocha.vercel.app",  # optional fixed prod
 ]
+# ---- CORS ----
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
-    allow_origin_regex=r"^https://.*\.vercel\.app$",  # ALL Vercel previews
+    allow_origins=["*"], # For production, you can restrict this to your Vercel URL
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["*"],
 )
 
 # COEP-friendly: CORP on all responses
@@ -64,54 +59,37 @@ async def log_origin(request, call_next):
     print("[CORS] Origin:", request.headers.get("origin"))
     return await call_next(request)
 
-# Whisper env (set in Render env: tiny/tiny.en recommended)
-WHISPER_MODEL = os.getenv("WHISPER_MODEL", "tiny")   # tiny | tiny.en | base | small | medium
-WHISPER_COMPUTE = os.getenv("WHISPER_COMPUTE", "cpu")
-WHISPER_BEAM = int(os.getenv("WHISPER_BEAM", "1"))
-
-# Load Whisper once
+# Optimized Whisper Load (SIRF EK BAAR)
 whisper_model: Optional[WhisperModel] = None
 try:
-    whisper_model = WhisperModel(WHISPER_MODEL, device=WHISPER_COMPUTE, compute_type="int8")
-    print(f"[Whisper] Loaded model='{WHISPER_MODEL}' device='{WHISPER_COMPUTE}'")
+    whisper_model = WhisperModel(
+        WHISPER_MODEL, 
+        device="cpu", 
+        compute_type="int8",
+        cpu_threads=1, # Free tier memory protection
+        num_workers=1
+    )
+    print(f"[Whisper] Loaded model='{WHISPER_MODEL}' in Low-Power mode")
 except Exception as e:
-    whisper_model = None
     print(f"[WARN] Faster-Whisper init failed: {e}")
 
+# ---- Helper functions ----
 def _write_silence_wav(path, duration_sec=0.5, rate=16000):
     nframes = int(duration_sec * rate)
     with wave.open(path, "w") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(rate)
-        silence = struct.pack("<h", 0)  # NOTE: "<h" (not &lt;h)
-        w.writeframes(silence * nframes)
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(rate)
+        w.writeframes(struct.pack("<h", 0) * nframes)
 
 @app.on_event("startup")
 async def preload_whisper():
-    """
-    Force-download weights & warm the model once at startup so
-    the first /transcribe/local request doesn't time out (502).
-    """
-    if whisper_model is None:
-        return
-    tmp = None
-    try:
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav"); tmp.close()
+    if whisper_model:
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
         _write_silence_wav(tmp.name, 0.5)
-        segments, info = whisper_model.transcribe(
-            tmp.name,
-            beam_size=WHISPER_BEAM,
-            vad_filter=True,
-            without_timestamps=True,
-        )
-        _ = "".join(seg.text for seg in segments)
-        print("[Whisper preload] done")
-    except Exception as e:
-        print("[Whisper preload] failed:", e)
-    finally:
-        try: os.remove(tmp.name)
-        except Exception: pass
+        try:
+            whisper_model.transcribe(tmp.name, beam_size=WHISPER_BEAM)
+            print("[Whisper preload] Warm-up done")
+        finally:
+            os.remove(tmp.name)
 
 # ---- mounts, DB, routers (NO ellipsis) ----
 for d in ["uploads", "output", "temp_uploads", "temp_mom"]:
@@ -126,71 +104,22 @@ models.Base.metadata.create_all(bind=database.engine)
 app.include_router(pdf_image_router)
 app.include_router(auth_router)
 app.include_router(user_data_router)
-
 get_db = database.get_db
 
+# ---- Gemini Logic ----
 def pick_gemini_model():
-    """
-    Prefer 2.5 Flash, else fallback to other available models.
-    You can override with env: GEMINI_MODEL="models/gemini-2.5-flash"
-    """
-    forced = os.getenv("GEMINI_MODEL")
-    if forced:
-        try:
-            return genai.GenerativeModel(forced)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Forced model '{forced}' failed: {e}")
-
-    preferred = [
-        "models/gemini-2.5-flash",
-        "models/gemini-2.5-pro",
-        "models/gemini-2.0-flash",
-        "models/gemini-2.0-flash-001",
-        "models/gemini-flash-latest",
-        "models/gemini-pro-latest",
-    ]
-    try:
-        available = [
-            m.name for m in genai.list_models()
-            if "generateContent" in getattr(m, "supported_generation_methods", [])
-        ]
-    except Exception:
-        available = []
-
-    for name in preferred:
-        if not available or name in available:
-            try: return genai.GenerativeModel(name)
-            except Exception: continue
-
-    for name in available:
-        try: return genai.GenerativeModel(name)
-        except Exception: continue
-
-    raise HTTPException(status_code=500, detail="No suitable Gemini model available for generateContent.")
-
+    model_name = os.getenv("GEMINI_MODEL", "models/gemini-2.5-flash")
+    return genai.GenerativeModel(model_name)
 
 def _upload_to_gemini(upload: UploadFile):
-    """
-    Save UploadFile to a temp path and upload to Gemini File API.
-    Returns the uploaded file handle (contains .name / .uri).
-    """
-    suffix = Path(upload.filename or "").suffix or ""
+    suffix = Path(upload.filename or "").suffix
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        upload.file.seek(0)
         shutil.copyfileobj(upload.file, tmp)
         tmp_path = tmp.name
     try:
-        gfile = genai.upload_file(path=tmp_path, mime_type=upload.content_type or None)
-        return gfile
+        return genai.upload_file(path=tmp_path)
     finally:
-        try:
-            os.remove(tmp_path)
-        except Exception:
-            pass
-        
-       
-
-
+        os.remove(tmp_path)
 
 # ---- Whisper init ----
 whisper_model: Optional[WhisperModel] = None
@@ -202,10 +131,10 @@ except Exception as e:
     print(f"[WARN] Faster-Whisper init failed: {e}")
 
 
-# ---------------- Health + basic routes ----------------
+# ------------------------ ROUTES ------------------------
+
 @app.get("/health")
-def health():
-    return {"status": "ok"}
+def health(): return {"status": "ok"}
 
 @app.get("/")
 def root():
@@ -221,6 +150,20 @@ def create_application(application: schemas.ApplicationCreate, db: Session = Dep
     db.add(db_application); db.commit(); db.refresh(db_application)
     return db_application
 
+@app.post("/transcribe/local")
+async def transcribe_local(file: UploadFile = File(...)):
+    if whisper_model is None:
+        raise HTTPException(status_code=500, detail="Whisper not loaded")
+    
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+        shutil.copyfileobj(file.file, tmp)
+        tmp_path = tmp.name
+    try:
+        segments, _ = whisper_model.transcribe(tmp_path, beam_size=WHISPER_BEAM, vad_filter=True)
+        text = "".join(seg.text for seg in segments).strip()
+        return {"text": text}
+    finally:
+        os.remove(tmp_path)
 
 # ------------------ PDF SPLIT ------------------
 @app.post("/convert/pdf-split")
@@ -427,115 +370,26 @@ async def ai_mom_generator(
     video: Optional[UploadFile] = File(None),
     image: Optional[UploadFile] = File(None),
 ):
-    if not GEMINI_API_KEY:
-        raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured on server.")
+    if not (transcript or video or image):
+        raise HTTPException(status_code=400, detail="Missing input")
 
-    # At least one input must be present
-    if not (transcript and transcript.strip()) and not video and not image:
-        raise HTTPException(status_code=400, detail="Provide transcript or upload video/image")
-
-    # Size guards (tune for your infra)
-    if getattr(video, "size", None) and video.size > 25 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="Video too large (>25MB)")
-    if getattr(image, "size", None) and image.size > 10 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="Image too large (>10MB)")
-
-    base_prompt = """
-You are an expert corporate assistant. Convert the following inputs into a clean, structured Minutes of Meeting (MOM).
-Be concise and factual. If both media and transcript are provided, use transcript as primary and media as context.
-
-STRICT FORMAT (use these exact headers):
-MEETING TITLE:
-AGENDA:
-SUMMARY:
-KEY POINTS:
-DECISIONS:
-RISKS:
-ACTION ITEMS (with owner & deadline):
-
-Rules:
-- Use bullet points where appropriate
-- Clear owners and explicit dates
-- No extra commentary outside these sections
-""".strip()
-
-    parts: List = [base_prompt]
-
-    if transcript and transcript.strip():
-        parts.append(f'Transcript:\n"""{transcript.strip()}"""')
-
-    # Upload media to Gemini File API and attach
-    uploaded = []
+    prompt = "Convert the following into a clean corporate MOM with Headers: TITLE, AGENDA, SUMMARY, DECISIONS, ACTION ITEMS."
+    parts = [prompt]
+    if transcript: parts.append(f"Transcript: {transcript}")
+    
+    uploaded_files = []
     try:
-        if image:
-            gimg = _upload_to_gemini(image)
-            uploaded.append(gimg)
-            parts.append(gimg)
-        if video:
-            gvid = _upload_to_gemini(video)
-            uploaded.append(gvid)
-            parts.append(gvid)
+        if image: 
+            img = _upload_to_gemini(image); parts.append(img); uploaded_files.append(img)
+        if video: 
+            vid = _upload_to_gemini(video); parts.append(vid); uploaded_files.append(vid)
 
         model = pick_gemini_model()
-        loop = asyncio.get_running_loop()
-        try:
-            resp = await asyncio.wait_for(
-                loop.run_in_executor(None, model.generate_content, parts),
-                timeout=60,  # media + generation
-            )
-        except asyncio.TimeoutError:
-            raise HTTPException(status_code=504, detail="AI generation timed out. Try again.")
-
-        text = (getattr(resp, "text", None) or "").strip()
-        text = html.unescape(text)
-        if not text:
-            raise HTTPException(status_code=502, detail="AI returned empty response")
-
-        return {"mom": text}
-
+        # Increased timeout to 120s for large transcripts
+        resp = await asyncio.wait_for(asyncio.to_thread(model.generate_content, parts), timeout=120)
+        return {"mom": resp.text}
     finally:
-        # Clean up Gemini storage (quota hygiene)
-        for f in uploaded:
-            try:
-                genai.delete_file(f.name)
-            except Exception:
-                pass
-
-# ------------------------ Local Whisper Transcription ------------------------
-@app.post("/transcribe/local")
-async def transcribe_local(file: UploadFile = File(...), language: Optional[str] = Form(None)):
-    """
-    Accepts ~5-min audio chunk (mp3/m4a/wav) and returns text using local faster-whisper.
-    No external API key needed.
-    """
-    if whisper_model is None:
-        raise HTTPException(status_code=500, detail="Local Whisper model not initialized")
-
-    # Save chunk to temp
-    suffix = os.path.splitext(file.filename or "chunk.mp3")[1] or ".mp3"
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        shutil.copyfileobj(file.file, tmp)
-        tmp_path = tmp.name
-
-    try:
-        segments, info = whisper_model.transcribe(
-            tmp_path,
-            beam_size=WHISPER_BEAM,
-            language=language,        # e.g., "en" | "hi" (optional)
-            vad_filter=True,
-            without_timestamps=True,  # we just need plain text
-        )
-        text = "".join(seg.text for seg in segments).strip()
-        if not text:
-            raise HTTPException(status_code=502, detail="Whisper produced empty text")
-        return {"text": text}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        try:
-            os.remove(tmp_path)
-        except Exception:
-            pass
+        for f in uploaded_files: genai.delete_file(f.name)
 
 # ------------------------ AI Models Catalog (debug) ------------------------
 @app.get("/ai/models")

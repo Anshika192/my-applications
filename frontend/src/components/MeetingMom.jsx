@@ -7,6 +7,7 @@ import { createFFmpeg, fetchFile } from "@ffmpeg/ffmpeg";
 /**
  * FFmpeg WASM (0.11.x API)
  */
+
 const ffmpeg = createFFmpeg({ log: false });
 async function ensureFFmpegLoaded() {
   if (!ffmpeg.isLoaded()) {
@@ -17,6 +18,7 @@ async function ensureFFmpegLoaded() {
 /**
  * Warm up Render free-tier backend with /health (CORS-friendly)
  */
+
 async function warmUpServer(API_URL) {
   const deadline = Date.now() + 70_000; // ~70s
   let lastErr = null;
@@ -203,41 +205,54 @@ const MeetingMom = ({ setActiveTab, onSuccess }) => {
         const hasTranscript = Boolean(transcript.trim());
 
         let finalTranscript = "";
+// handleGenerate function ke andar jahan "hasVideo" wala block hai:
 
-        if (hasVideo) {
-          // 1) Client-side extract & chunk
-          setMsg("Extracting audio & chunking (this may take a few minutes) …");
-          const chunks = await extractAndChunkAudio(video, (m) => setMsg(m));
+if (hasVideo) {
+  setMsg("Extracting audio... Please keep this tab active.");
+  const chunks = await extractAndChunkAudio(video, (m) => setMsg(m));
 
-          // 2) Transcribe chunks via local Whisper (+ small retry for first warm-up hiccup)
-          const parts = [];
-          for (let i = 0; i < chunks.length; i++) {
-            setMsg(`Transcribing chunk ${i + 1}/${chunks.length} …`);
-            const form = new FormData();
-            form.append("file", new File([chunks[i].blob], chunks[i].name, { type: "audio/wav" }));
+  const parts = [];
+  for (let i = 0; i < chunks.length; i++) {
+    setMsg(`Transcribing chunk ${i + 1}/${chunks.length} …`);
+    
+    // FormData har baar loop ke andar naya banna chahiye
+    const form = new FormData();
+    form.append("file", new File([chunks[i].blob], chunks[i].name, { type: "audio/wav" }));
 
-            let r;
-            try {
-              r = await axios.post(`${API_URL}/transcribe/local`, form, {
-                headers: { "Content-Type": "multipart/form-data" },
-                timeout: 120_000,
-              });
-            } catch {
-              await new Promise((res) => setTimeout(res, 1500));
-              r = await axios.post(`${API_URL}/transcribe/local`, form, {
-                headers: { "Content-Type": "multipart/form-data" },
-                timeout: 120_000,
-              });
-            }
+    let success = false;
+    let retries = 3;
 
-            parts.push(r?.data?.text || "");
-          }
-          finalTranscript = parts.join("\n").trim();
+    while (!success && retries > 0) {
+      try {
+        const r = await axios.post(`${API_URL}/transcribe/local`, form, {
+          headers: { "Content-Type": "multipart/form-data" },
+          timeout: 180000, // 3 minutes
+        });
+        
+        if (r.data && r.data.text) {
+          parts.push(r.data.text);
         }
-
-        if (hasTranscript) {
-          finalTranscript = (finalTranscript ? finalTranscript + "\n" : "") + transcript.trim();
+        success = true;
+        
+        // Render server ko thoda "rest" dene ke liye 2 sec wait
+        await new Promise((res) => setTimeout(res, 2000));
+        
+      } catch (err) {
+        retries--;
+        console.error(`Error in chunk ${i}, retries left: ${retries}`, err);
+        
+        if (retries > 0) {
+          setMsg(`Chunk ${i + 1} failed. Retrying... (${retries} left)`);
+          await new Promise((res) => setTimeout(res, 5000)); // 5 sec wait before retry
+        } else {
+          // Agar 3 baar fail ho gaya toh error throw karein
+          throw new Error(`Chunk ${i + 1} transcription failed after 3 attempts.`);
         }
+      }
+    }
+  }
+  finalTranscript = parts.join("\n").trim();
+}
 
         // 3) Generate MOM (image optional)
         setMsg("Generating MOM…");
