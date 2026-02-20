@@ -50,7 +50,7 @@ async function extractAndChunkAudio(videoFile, onProgress) {
   await ffmpeg.run("-i", inputName, "-vn", "-ac", "1", "-ar", "16000", "-f", "wav", wavName);
 
   onProgress?.("Splitting into 2‑minute chunks …");
-  await ffmpeg.run("-i", wavName, "-f", "segment", "-segment_time", "120", "-c", "copy", "chunk%03d.wav");
+  await ffmpeg.run("-i", wavName, "-f", "segment", "-segment_time", "30", "-c", "copy", "chunk%03d.wav");
 
   const entries = ffmpeg.FS("readdir", "/").filter((n) => /^chunk\d{3}\.wav$/.test(n)).sort();
 
