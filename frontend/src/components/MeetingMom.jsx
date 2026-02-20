@@ -235,7 +235,7 @@ if (hasVideo) {
         success = true;
         
         // Render server ko thoda "rest" dene ke liye 2 sec wait
-        await new Promise((res) => setTimeout(res, 2000));
+        await new Promise((res) => setTimeout(res, 5000));
         
       } catch (err) {
         retries--;
