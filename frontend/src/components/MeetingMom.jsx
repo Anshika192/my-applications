@@ -213,41 +213,31 @@ if (hasVideo) {
 
   const parts = [];
   for (let i = 0; i < chunks.length; i++) {
-    setMsg(`Transcribing chunk ${i + 1}/${chunks.length} …`);
+    setMsg(`Transcribing chunk ${i + 1}/${chunks.length} (safe mode) …`);
     
     // FormData har baar loop ke andar naya banna chahiye
     const form = new FormData();
     form.append("file", new File([chunks[i].blob], chunks[i].name, { type: "audio/wav" }));
 
     let success = false;
-    let retries = 3;
+    let attempts = 0;
 
-    while (!success && retries > 0) {
+    while (!success && attempts < 5) {
       try {
         const r = await axios.post(`${API_URL}/transcribe/local`, form, {
           headers: { "Content-Type": "multipart/form-data" },
-          timeout: 180000, // 3 minutes
+          timeout: 300000, // 3 minutes
         });
-        
-        if (r.data && r.data.text) {
-          parts.push(r.data.text);
-        }
-        success = true;
+          parts.push(r?.data?.text || "");
+          success = true;
         
         // Render server ko thoda "rest" dene ke liye 2 sec wait
-        await new Promise((res) => setTimeout(res, 5000));
+        await new Promise(res => setTimeout(res, 10000));
         
-      } catch (err) {
-        retries--;
-        console.error(`Error in chunk ${i}, retries left: ${retries}`, err);
-        
-        if (retries > 0) {
-          setMsg(`Chunk ${i + 1} failed. Retrying... (${retries} left)`);
-          await new Promise((res) => setTimeout(res, 5000)); // 5 sec wait before retry
-        } else {
-          // Agar 3 baar fail ho gaya toh error throw karein
-          throw new Error(`Chunk ${i + 1} transcription failed after 3 attempts.`);
-        }
+      } catch (e) {
+        attempts++;
+        setMsg(`Server busy... Retrying part ${i+1} (Attempt ${attempts}/5)`);
+        await new Promise(res => setTimeout(res, 15000));
       }
     }
   }
