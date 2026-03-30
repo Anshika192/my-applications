@@ -1,4 +1,30 @@
 /* AdminLogin.css */
+/* ===== Password Show/Hide ===== */
+
+.password-wrapper {
+  position: relative;
+}
+
+.password-wrapper input {
+  width: 100%;
+  padding-right: 44px; /* space for eye icon */
+}
+
+.password-toggle {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  cursor: pointer;
+  font-size: 18px;
+  opacity: 0.7;
+  user-select: none;
+}
+
+.password-toggle:hover {
+  opacity: 1;
+}
+
 .admin-login-wrapper {
     display: flex;
     justify-content: center;
