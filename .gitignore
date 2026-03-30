@@ -1,0 +1,27 @@
+# Python venv
+venv/
+.venv/
+backend/venv_old/
+
+# Node / frontend
+node_modules/
+dist/
+build/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Temp / outputs
+uploads/
+output/
+temp_uploads/
+temp_mom/
+
+# Local DB + secrets
+app.db
+.env
+
+# Generated PDFs (safety)
+backend/unlocked_*.pdf

@@ -1,0 +1,117 @@
+/* AdminLogin.css */
+.admin-login-wrapper {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    background: linear-gradient(135deg, #4318ff 0%, #707eff 100%);
+    font-family: 'DM Sans', sans-serif;
+    padding: 20px;
+}
+
+.login-box {
+    background: white;
+    padding: 40px;
+    border-radius: 24px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+    width: 100%;
+    max-width: 400px;
+    text-align: center;
+}
+
+.admin-icon {
+    font-size: 40px;
+    margin-bottom: 10px;
+}
+
+.login-box h1 {
+    color: #2b3674;
+    font-size: 28px;
+    font-weight: 700;
+    margin-bottom: 8px;
+}
+
+.login-box p {
+    color: #a3aed0;
+    font-size: 15px;
+    margin-bottom: 30px;
+}
+
+.error-msg {
+    background: #fff5f5;
+    color: #ff5b5b;
+    padding: 10px;
+    border-radius: 12px;
+    font-size: 14px;
+    margin-bottom: 20px;
+    border: 1px solid #ffebeb;
+}
+
+.input-group {
+    text-align: left;
+    margin-bottom: 20px;
+}
+
+.input-group label {
+    display: block;
+    font-size: 14px;
+    color: #2b3674;
+    font-weight: 600;
+    margin-bottom: 8px;
+    margin-left: 4px;
+}
+
+.input-group input {
+    width: 100%;
+    padding: 14px 16px;
+    border: 1px solid #e0e5f2;
+    border-radius: 16px;
+    font-size: 15px;
+    transition: 0.3s;
+    box-sizing: border-box;
+}
+
+.input-group input:focus {
+    outline: none;
+    border-color: #4318ff;
+    box-shadow: 0 0 0 4px rgba(67, 24, 255, 0.1);
+}
+
+.login-btn {
+    width: 100%;
+    padding: 14px;
+    background: #4318ff;
+    color: white;
+    border: none;
+    border-radius: 16px;
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: 0.3s;
+    margin-top: 10px;
+}
+
+.login-btn:hover {
+    background: #3311cc;
+    transform: translateY(-2px);
+}
+
+.login-btn:disabled {
+    background: #a3aed0;
+    cursor: not-allowed;
+}
+
+.back-to-site {
+    background: none;
+    border: none;
+    color: #a3aed0;
+    font-size: 14px;
+    margin-top: 25px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: 0.3s;
+}
+
+.back-to-site:hover {
+    color: #4318ff;
+}

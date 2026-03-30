@@ -1,0 +1,490 @@
+/* =========================================================
+   AdminDashboard.css — CLEAN, SCOPED, RESPONSIVE
+   ========================================================= */
+
+/* ---------- GLOBAL: THEME TOKENS & KNOBS ---------- */
+:root {
+  /* Page max width for centered layouts (not used when full-bleed) */
+  --content-max: 1600px;
+
+  /* Suggestions spacing knobs — tweak easily */
+  --gap-created-likes: 16px;       /* gutter between Created & Likes */
+  --status-header-shift: 22px;     /* only the "Status" header offset */
+}
+
+/* Dark theme tokens */
+.admin-dashboard-container.dark-theme {
+  --bg:           #0b1220;
+  --panel:        #0f172a;
+  --panel-2:      #0b1628;
+  --panel-3:      #132033;
+  --border:       #1e293b;
+  --text:         #e5eef8;
+  --muted:        #94a3b8;
+  --muted-2:      #8da0b3;
+
+  --primary:      #3b82f6;
+  --primary-600:  #2563eb;
+  --primary-700:  #1d4ed8;
+
+  --success:      #10b981;
+  --warning:      #f59e0b;
+  --danger:       #ef4444;
+
+  --badge-grey-bg:   #334155;
+  --badge-blue-bg:   #1f3a5f;
+  --badge-green-bg:  #0a4a3c;
+  --badge-red-bg:    #5b2323;
+
+  --scroll:       #334155;
+}
+
+/* Light theme tokens */
+.admin-dashboard-container.light-theme {
+  --bg:           #f6f8fc;
+  --panel:        #ffffff;
+  --panel-2:      #f1f5f9;
+  --panel-3:      #e9eef5;
+  --border:       #e2e8f0;
+  --text:         #0f172a;
+  --muted:        #475569;
+  --muted-2:      #64748b;
+
+  --primary:      #2563eb;
+  --primary-600:  #1d4ed8;
+  --primary-700:  #1e40af;
+
+  --success:      #059669;
+  --warning:      #d97706;
+  --danger:       #dc2626;
+
+  --badge-grey-bg:   #e2e8f0;
+  --badge-blue-bg:   #dbeafe;
+  --badge-green-bg:  #d1fae5;
+  --badge-red-bg:    #fee2e2;
+
+  --scroll:       #cbd5e1;
+}
+
+/* ---------- ROOT LAYOUT ---------- */
+.admin-dashboard-container {
+  display: flex;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  transition: background .2s ease, color .2s ease;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, "DM Sans", sans-serif;
+}
+
+/* Sidebar */
+.admin-sidebar {
+  width: 240px;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  padding: 16px 12px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow: auto;
+}
+.sidebar-logo {
+  display: flex; align-items: center; gap: 10px;
+  font-weight: 800; letter-spacing: .04em;
+  color: var(--text);
+  margin-bottom: 16px;
+}
+.logo-icon {
+  width: 28px; height: 28px; border-radius: 6px;
+  background: linear-gradient(135deg, var(--primary), var(--primary-700));
+}
+
+/* Navigation */
+.admin-nav { display: flex; flex-direction: column; gap: 6px; }
+.nav-item {
+  width: 100%;
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px;
+  background: transparent;
+  color: var(--text);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background .2s, color .2s, border-color .2s;
+}
+.nav-item:hover { background: var(--panel-2); border-color: var(--border); }
+.nav-item.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+.logout-btn {
+  margin-top: auto;
+  width: 100%;
+  display: inline-flex; align-items: center; gap: 8px; justify-content: center;
+  padding: 10px 12px; border-radius: 8px;
+  background: var(--danger);
+  color: #fff; border: 1px solid transparent;
+  cursor: pointer; transition: background .2s;
+}
+.logout-btn:hover { background: #b91c1c; }
+
+/* Main area */
+.admin-main { flex: 1; display: flex; flex-direction: column; }
+
+/* Header */
+.admin-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+.header-info h2 { margin: 0; font-size: 18px; color: var(--text); }
+.header-info p  { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+.admin-profile { display: flex; align-items: center; gap: 10px; }
+.profile-img { width: 28px; height: 28px; border-radius: 50%; background: var(--panel-3); }
+
+/* Content: full-bleed (sidebar ke baad jitna area utna use) */
+.content-body {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 20px 28px;
+  display: flex; flex-direction: column; gap: 16px;
+}
+
+/* ---------- CARDS / CHARTS ---------- */
+.stats-grid {
+  display: grid; gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+.stat-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+}
+.stat-card p { color: var(--muted); margin: 0 0 8px; font-size: 12px; }
+.stat-card h3 { margin: 0; font-weight: 800; font-size: 22px; }
+
+.charts-container-grid {
+  display: grid; gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+.chart-box {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+}
+.chart-box h4 { margin: 0 0 10px; color: var(--muted); }
+
+/* ---------- TABLES: BASE ---------- */
+.table-container {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+}
+.table-container h3 { margin: 0 0 12px; color: var(--text); }
+
+.feedback-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed; /* predictability + prevents jitter */
+}
+.feedback-table thead th {
+  background: var(--panel-3);
+  padding: 12px;
+  text-align: left;
+  color: var(--text);
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.feedback-table td {
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--text);
+  vertical-align: top;
+  word-break: break-word;
+}
+
+/* ---------- FORMS & BUTTONS ---------- */
+.logs-filter-bar {
+  display: flex; flex-wrap: wrap; gap: 12px;
+  padding: 16px; border: 1px solid var(--border);
+  background: var(--panel-2); border-radius: 10px; margin-bottom: 18px;
+}
+.logs-filter-bar .field { display: flex; flex-direction: column; gap: 4px; min-width: 160px; }
+.logs-filter-bar label { font-size: 12px; color: var(--muted); font-weight: 600; }
+
+.select-small,
+.logs-filter-bar input,
+.logs-filter-bar select {
+  padding: 8px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+}
+.select-small:focus,
+.logs-filter-bar input:focus,
+.logs-filter-bar select:focus {
+  outline: none; border-color: var(--primary);
+}
+
+/* Buttons */
+.btn-small, .btn-apply {
+  padding: 8px 14px;
+  background: var(--primary);
+  border: none; border-radius: 6px;
+  color: #fff; cursor: pointer; font-size: 14px; height: 38px;
+}
+.btn-small:hover, .btn-apply:hover { background: var(--primary-600); }
+
+/* ---------- BADGES (Generic) ---------- */
+.badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 18px;
+  font-weight: 700;
+}
+.badge-grey  { background: var(--badge-grey-bg);  color: var(--muted-2); }
+.badge-blue  { background: var(--badge-blue-bg);  color: #d3e7ff; }
+.badge-green { background: var(--badge-green-bg); color: #e6ffec; }
+.badge-red   { background: var(--badge-red-bg);   color: #ffe2e2; }
+
+/* ---------- PAGINATION ---------- */
+.pagination-container {
+  display:flex; justify-content:center; align-items:center; gap:8px; margin-top:12px;
+}
+.page-btn {
+  padding:6px 10px; background: var(--panel-2);
+  border:1px solid var(--border); border-radius:6px; cursor:pointer;
+  color: var(--text); font-size:13px;
+}
+.page-btn:hover { background: var(--panel-3); }
+.page-info { color: var(--text); }
+
+/* ---------- SCROLLBARS ---------- */
+.admin-sidebar::-webkit-scrollbar,
+.content-body::-webkit-scrollbar { width: 8px; height: 8px; }
+.admin-sidebar::-webkit-scrollbar-thumb,
+.content-body::-webkit-scrollbar-thumb {
+  background: var(--scroll); border-radius: 8px;
+}
+
+/* =========================================================
+   LOGS TABLE — SCOPED (no interference with Suggestions)
+   ========================================================= */
+.feedback-table.logs-table { table-layout: fixed; width: 100%; }
+.feedback-table.logs-table thead th,
+.feedback-table.logs-table td {
+  background: unset; color: var(--text); border-bottom: 1px solid var(--border);
+}
+.feedback-table.logs-table thead th:nth-child(1),
+.feedback-table.logs-table td:nth-child(1) { width: 18%; } /* Time */
+.feedback-table.logs-table thead th:nth-child(2),
+.feedback-table.logs-table td:nth-child(2) { width: 20%; } /* Admin */
+.feedback-table.logs-table thead th:nth-child(3),
+.feedback-table.logs-table td:nth-child(3) { width: 22%; } /* Action */
+.feedback-table.logs-table thead th:nth-child(4),
+.feedback-table.logs-table td:nth-child(4) { width: 40%; } /* Target */
+
+.action-tag {
+  padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: 700;
+  display: inline-block; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  background: var(--panel-2); border: 1px solid var(--border);
+}
+.action-login  { background: var(--primary); color:#fff; }
+.action-update { background: var(--warning); color:#fff; }
+.action-delete { background: var(--danger);  color:#fff; }
+
+.copy-btn { cursor: pointer; color: var(--primary); font-size: 14px; padding-left: 6px; }
+.copy-btn:hover { color: var(--primary-600); }
+
+/* =========================================================
+   SUGGESTIONS TABLE — SCOPED & RESPONSIVE
+   ========================================================= */
+.table-container.suggestions-card { width: 100%; max-width: 100%; }
+.suggestions-card .suggestions-table {
+  width: 100%; table-layout: fixed; border-collapse: collapse;
+}
+
+/* FINAL column widths (sum = 100%)
+   User:20 | Idea:15 | Note:15 | Created:20 | Likes:12 | Status:30 */
+.suggestions-card .suggestions-table thead th:nth-child(1),
+.suggestions-card .suggestions-table td:nth-child(1) { width: 20%; } /* User */
+.suggestions-card .suggestions-table thead th:nth-child(2),
+.suggestions-card .suggestions-table td:nth-child(2) { width: 15%; } /* Idea */
+.suggestions-card .suggestions-table thead th:nth-child(3),
+.suggestions-card .suggestions-table td:nth-child(3) { width: 15%; } /* Note */
+.suggestions-card .suggestions-table thead th:nth-child(4),
+.suggestions-card .suggestions-table td:nth-child(4) { width: 20%; } /* Created */
+.suggestions-card .suggestions-table thead th:nth-child(5),
+.suggestions-card .suggestions-table td:nth-child(5) { width: 12%; } /* Likes */
+.suggestions-card .suggestions-table thead th:nth-child(6),
+.suggestions-card .suggestions-table td:nth-child(6) { width: 30%; } /* Status */
+
+/* Base padding */
+.suggestions-card .suggestions-table thead th {
+  background: var(--panel-3); color: var(--text); border-bottom: 1px solid var(--border);
+  padding: 12px; white-space: nowrap;
+}
+.suggestions-card .suggestions-table td { padding: 10px 12px; color: var(--text); border-bottom: 1px solid var(--border); }
+
+/* User email under name */
+.suggestions-card .subtext { color: var(--muted-2); font-size: 12px; margin-top: 2px; line-height: 1.1; }
+/* Idea strong */
+.suggestions-card .idea-strong { font-weight: 700; }
+
+/* Created ↔ Likes: gutter */
+.suggestions-card .suggestions-table thead th:nth-child(4),
+.suggestions-card .suggestions-table td:nth-child(4) { padding-right: var(--gap-created-likes); } /* Created */
+.suggestions-card .suggestions-table thead th:nth-child(5),
+.suggestions-card .suggestions-table td:nth-child(5) { padding-left: var(--gap-created-likes); }  /* Likes */
+
+/* Created / Likes no-wrap to avoid vertical stacking */
+.suggestions-card .created-cell { text-align: center; white-space: nowrap; }
+.suggestions-card .likes-cell   { text-align: center; white-space: nowrap; }
+
+/* Likes pill */
+.suggestions-card .like-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 2px 8px; border-radius: 999px; font-size: 12px;
+  background: var(--panel-2); border: 1px solid var(--border);
+}
+
+/* STATUS: header shift (only heading), & cell behavior */
+.suggestions-card .suggestions-table thead th:nth-child(6) {
+  padding-left: 70px !important;
+}
+.suggestions-card .suggestions-table thead th:nth-child(5) {
+  padding-left: 30px !important;
+}
+.suggestions-card .status-cell { white-space: nowrap; overflow: visible; }
+.suggestions-card .status-wrap { display: inline-flex; align-items: center; gap: 8px; flex-wrap: nowrap; }
+.suggestions-card .select-small {
+  min-width: 140px; max-width: 230px;
+  padding: 6px 8px; font-size: 12px;
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px;
+}
+
+/* Tablet: stack status (badge top, select below) */
+@media (max-width: 1100px) {
+  .suggestions-card .status-wrap { flex-wrap: wrap; row-gap: 6px; }
+  .suggestions-card .select-small { min-width: 116px; }
+}
+
+/* Admin note (truncate) */
+.suggestions-card .admin-note {
+  margin-top: 6px; font-size: 12px; color: var(--muted-2);
+  max-width: 24ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Defensive reset: generic nth-child widths from other tables should not leak here */
+.feedback-table:not(.suggestions-table):not(.logs-table) thead th,
+.feedback-table:not(.suggestions-table):not(.logs-table) td { width: auto; }
+
+.stat-card.clickable { cursor: pointer; transition: transform .05s ease, box-shadow .1s ease; }
+.stat-card.clickable:hover { box-shadow: 0 0 0 1px var(--border); transform: translateY(-1px); }
+
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+  display: flex; align-items: center; justify-content: center; z-index: 1000;
+}
+.modal-card {
+  width: min(920px, 96vw); max-height: 80vh; overflow: auto;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.4);
+}
+.modal-header, .modal-footer { padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.modal-footer { border-top: 1px solid var(--border); border-bottom: none; }
+.modal-body { padding: 12px 16px; }
+.modal-header h4 { margin: 0; }
+.modal-close {
+  border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 18px;
+  float: right;
+}
+/* ---------- Modal Layering + Look ---------- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  /* Remove blur; use a simple dim */
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 1000;                 /* must be above sidebar */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal {
+  width: 720px;
+  max-width: 92vw;
+  max-height: 80vh;
+  overflow: auto;
+
+  /* Solid panel colors so content is crisp */
+  background: var(--panel-1, #0f172a);
+  color: var(--text, #fff);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+  z-index: 1001;                 /* above overlay */
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  position: sticky;
+  top: 0;
+  background: var(--panel-1, #0f172a); /* ensure not transparent */
+  z-index: 1;
+}
+
+.modal-body {
+  padding: 8px 16px;
+}
+
+/* Ensure sidebar is under modal */
+.admin-sidebar {
+  z-index: 900;
+}
+
+/* If you had any global blur on modal-open, neutralize it */
+.modal-open .admin-main,
+.modal-open .admin-sidebar {
+  filter: none !important;
+  opacity: 1 !important;
+}
+
+/* Some tables used sticky headers—remove blur if present */
+.feedback-table thead {
+  position: sticky;
+  top: 0;
+  background: var(--panel-1, #0f172a);
+  backdrop-filter: none !important; /* kill any blur */
+  -webkit-backdrop-filter: none !important;
+  z-index: 1;
+}
+
+/* Optional: make the dim of cards when modal opens go away (if you had) */
+.modal-open .stat-card,
+.modal-open .charts-container-grid {
+  filter: none !important;
+  opacity: 1 !important;
+}
+
+/* Clickable cards hover */
+.stat-card.clickable { 
+  cursor: pointer; 
+  transition: transform .06s ease, box-shadow .06s ease; 
+}
+.stat-card.clickable:hover { 
+  transform: translateY(-1px); 
+  box-shadow: 0 6px 18px rgba(0,0,0,.25); 
+}
