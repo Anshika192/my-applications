@@ -1,9 +1,10 @@
-
-
 # 📁 My Applications – PDF & Image Tools Suite
 
-This is a full‑stack web application that provides multiple productivity tools such as:
-PDF operations, Image conversion, MOM (Minutes of Meeting) generator, OCR, and many more.
+My Applications is a full‑stack web application that provides a unified platform for multiple productivity tools related to PDF, Image, and Document processing.
+
+The project focuses on integrating commonly used utilities into a single, user‑friendly interface with reliable backend APIs.
+
+---
 
 ## 🚀 Features
 
@@ -17,18 +18,18 @@ PDF operations, Image conversion, MOM (Minutes of Meeting) generator, OCR, and m
 - PDF Lock / Unlock  
 
 ### 🔸 Image & Document Tools
-- Image → PDF  
-- PDF → Image  
+- Image to PDF  
+- PDF to Image  
 - Image Compressor  
 - Image Format Converter  
-- Image → Text (OCR)  
-- Word → PDF  
-- PDF → Word  
+- Image to Text (OCR)  
+- Word to PDF  
+- PDF to Word  
 
 ### 🔸 MOM & Utility Tools
-- Auto Meeting MOM Generator  
-- Audio/Video → Text  
-- PPT → Excel  
+- Automatic Meeting MOM (Minutes of Meeting) Generator  
+- Audio / Video to Text  
+- PPT to Excel  
 - QR Code Generator  
 
 ---
@@ -43,25 +44,22 @@ PDF operations, Image conversion, MOM (Minutes of Meeting) generator, OCR, and m
 - PyPDF2, PyMuPDF, pdf2docx  
 - OpenCV, pytesseract  
 - python‑pptx  
-- JWT Auth (python‑jose + bcrypt)  
+- JWT Authentication (python‑jose, bcrypt)  
 
 ### Frontend
 - React  
 - Vite  
 - JavaScript  
-- Tailwind / CSS  
-- API integration with FastAPI  
+- CSS  
+- REST API integration with FastAPI  
 
 ---
 
-## ▶️ Run Backend
+## ▶️ Run Backend Locally
 
 ```bash
 cd backend
-py -3 -m venv venv
-.\venv\Scripts\activate
+python -m venv venv
+venv\Scripts\activate
 pip install -r requirements.txt
-python -m uvicorn main:app --reload
-
-
-# Team discussed the progress of API-3. The backend work is delayed by 4 days because the integration tests are failing. QA is waiting for a stable build. The frontend team has completed their tasks. Deployment is expected by next Monday. Ankit will handle the remaining backend fixes and Priya will take care of documentation. Risk of further delay if API-3 issues are not resolved today.
+uvicorn main:app --reload
