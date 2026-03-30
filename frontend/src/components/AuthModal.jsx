@@ -6,6 +6,7 @@ export default function AuthModal({ open, onClose, onAuthed }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false); // ✅ NEW
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -35,7 +36,9 @@ export default function AuthModal({ open, onClose, onAuthed }) {
     <div style={styles.backdrop} onClick={onClose}>
       <div style={styles.card} onClick={(e) => e.stopPropagation()}>
         <div style={styles.head}>
-          <h3 style={{ margin: 0 }}>{mode === "login" ? "Log In" : "Sign Up"}</h3>
+          <h3 style={{ margin: 0 }}>
+            {mode === "login" ? "Log In" : "Sign Up"}
+          </h3>
           <button onClick={onClose} style={styles.x}>✕</button>
         </div>
 
@@ -58,19 +61,34 @@ export default function AuthModal({ open, onClose, onAuthed }) {
             required
           />
 
-          <input
-            style={styles.input}
-            placeholder="Password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
+          {/* ✅ PASSWORD WITH EYE TOGGLE */}
+          <div style={{ position: "relative" }}>
+            <input
+              style={{ ...styles.input, paddingRight: 44 }}
+              placeholder="Password"
+              type={showPassword ? "text" : "password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+
+            <span
+              onClick={() => setShowPassword(!showPassword)}
+              title={showPassword ? "Hide password" : "Show password"}
+              style={styles.eye}
+            >
+              {showPassword ? "🙈" : "👁️"}
+            </span>
+          </div>
 
           {err && <div style={styles.err}>{err}</div>}
 
           <button disabled={loading} style={styles.btn}>
-            {loading ? "Please wait..." : mode === "login" ? "Log In" : "Create Account"}
+            {loading
+              ? "Please wait..."
+              : mode === "login"
+              ? "Log In"
+              : "Create Account"}
           </button>
         </form>
 
@@ -86,13 +104,67 @@ export default function AuthModal({ open, onClose, onAuthed }) {
   );
 }
 
+/* ✅ UPDATED STYLES */
 const styles = {
-  backdrop: { position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "grid", placeItems: "center", zIndex: 999999 },
-  card: { width: "min(420px, 92vw)", background: "#fff", borderRadius: 16, padding: 16, boxShadow: "0 12px 30px rgba(0,0,0,.25)" },
-  head: { display: "flex", justifyContent: "space-between", alignItems: "center" },
-  x: { border: "none", background: "transparent", fontSize: 18, cursor: "pointer" },
-  input: { padding: "10px 12px", borderRadius: 10, border: "1px solid #e5e7eb", outline: "none" },
-  btn: { padding: "10px 12px", borderRadius: 10, border: "none", background: "#111827", color: "#fff", cursor: "pointer", fontWeight: 700 },
-  err: { color: "#b91c1c", fontSize: 13 },
-  link: { color: "#2563eb", cursor: "pointer", fontWeight: 700 }
+  backdrop: {
+    position: "fixed",
+    inset: 0,
+    background: "rgba(0,0,0,.45)",
+    display: "grid",
+    placeItems: "center",
+    zIndex: 999999,
+  },
+  card: {
+    width: "min(420px, 92vw)",
+    background: "#fff",
+    borderRadius: 16,
+    padding: 16,
+    boxShadow: "0 12px 30px rgba(0,0,0,.25)",
+  },
+  head: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  x: {
+    border: "none",
+    background: "transparent",
+    fontSize: 18,
+    cursor: "pointer",
+  },
+  input: {
+    padding: "10px 12px",
+    borderRadius: 10,
+    border: "1px solid #e5e7eb",
+    outline: "none",
+    width: "100%",
+  },
+  btn: {
+    padding: "10px 12px",
+    borderRadius: 10,
+    border: "none",
+    background: "#111827",
+    color: "#fff",
+    cursor: "pointer",
+    fontWeight: 700,
+  },
+  err: {
+    color: "#b91c1c",
+    fontSize: 13,
+  },
+  link: {
+    color: "#2563eb",
+    cursor: "pointer",
+    fontWeight: 700,
+  },
+  eye: {
+    position: "absolute",
+    right: 14,
+    top: "50%",
+    transform: "translateY(-50%)",
+    cursor: "pointer",
+    fontSize: 18,
+    opacity: 0.7,
+    userSelect: "none",
+  },
 };
