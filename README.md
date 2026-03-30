@@ -87,3 +87,7 @@ python -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt
 uvicorn main:app --reload
+
+## 🌐 Live Deployment
+- Frontend: https://my-applications-frontend.vercel.app
+- Backend API: https://my-applications-backend.onrender.com
