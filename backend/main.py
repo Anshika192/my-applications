@@ -34,6 +34,9 @@ from routers.bg_remover import router as bg_remover_router
 
 from passlib.context import CryptContext
 
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.middleware.cors import CORSMiddleware
+
 def get_current_admin(authorization: str = Header(None)):
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -145,7 +148,13 @@ else:
     print("[WARN] GEMINI_API_KEY not set. Gemini endpoints will return 500 unless provided.")
 
 # ------------------------ FastAPI App ------------------------
-app = FastAPI(title="My Applications - MOM API", version="0.1.0")
+app = FastAPI(
+    title="My Applications API",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json"
+)
 
 # ---- CORS registered EARLY ----
 ALLOWED_ORIGINS = [
@@ -157,8 +166,8 @@ ALLOWED_ORIGINS = [
 ]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # For production, restrict to known origins
-    allow_credentials=False,
+    allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
