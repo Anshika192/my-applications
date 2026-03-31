@@ -8,8 +8,10 @@ const ToolLayout = ({
   children, 
   onSuccess, 
   toolKey, 
-  onFileDrop 
+  onFileDrop,
+  enableFileUpload = true
 }) => {
+   console.log("ToolLayout enableFileUpload:", enableFileUpload);
 
   const isDark = document.body.classList.contains("dark-theme");
   const [dragActive, setDragActive] = useState(false);
@@ -97,33 +99,35 @@ const ToolLayout = ({
       <div style={styles.card(isDark)}>
 
         {/* 🔥 DRAG DROP ZONE */}
-        <div
-          onDragEnter={handleDrag}
-          onDragLeave={handleDrag}
-          onDragOver={handleDrag}
-          onDrop={handleDropEvent}
-          onClick={() => fileInputRef.current.click()}
-          style={styles.dropzone(isDark, dragActive)}
-        >
-          <input
-            type="file"
-            hidden
-            ref={fileInputRef}
-            onChange={(e) => handleFileSubmit(e.target.files[0])}
-          />
+        {enableFileUpload && (
+  <div
+    onDragEnter={handleDrag}
+    onDragLeave={handleDrag}
+    onDragOver={handleDrag}
+    onDrop={handleDropEvent}
+    onClick={() => fileInputRef.current.click()}
+    style={styles.dropzone(isDark, dragActive)}
+  >
+    <input
+      type="file"
+      hidden
+      ref={fileInputRef}
+      onChange={(e) => handleFileSubmit(e.target.files[0])}
+    />
 
-          <img
-  src="/icons/upload.png"
-  alt="Upload"
-  style={{ width: 48, margin: "0 auto", display: "block", opacity: 0.85 }}
-/>
+    <img
+      src="/icons/upload.png"
+      alt="Upload"
+      style={{ width: 48, margin: "0 auto", display: "block", opacity: 0.85 }}
+    />
 
-          <p style={styles.dropText(isDark)}>
-            <strong>Drag & Drop</strong> your file here
-          </p>
+    <p style={styles.dropText(isDark)}>
+      <strong>Drag & Drop</strong> your file here
+    </p>
 
-          <p style={styles.subText(isDark)}>or click to browse</p>
-        </div>
+    <p style={styles.subText(isDark)}>or click to browse</p>
+  </div>
+)}
 
         {/* 🔥 FIXED PREVIEW — Works for drag & drop + choose file */}
         {previewURL && (
