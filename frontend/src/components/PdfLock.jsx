@@ -101,11 +101,13 @@ const PdfLock = ({ setActiveTab, onSuccess }) => {
   };
 
   return (
-    <ToolLayout
-      title="PDF Lock / Unlock"
-      description="Secure or remove password from your PDF files"
-      onBack={() => setActiveTab("dashboard")}
-    >
+     <ToolLayout
+  title="PDF to Text"
+  description="Extract text from PDF"
+  onBack={() => setActiveTab("dashboard")}
+  acceptedTypes={["application/pdf", ".pdf"]}
+  rejectMessage="❌ This tool accepts only PDF files."
+>
       {/* MODE TABS */}
       <div
         style={{

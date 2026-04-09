@@ -9,7 +9,10 @@ const ToolLayout = ({
   onSuccess, 
   toolKey, 
   onFileDrop,
-  enableFileUpload = true
+  enableFileUpload = true,
+  acceptedTypes = [],          
+  rejectMessage = "Invalid file type"
+
 }) => {
    console.log("ToolLayout enableFileUpload:", enableFileUpload);
 
@@ -40,32 +43,44 @@ const ToolLayout = ({
 
   /* ------------------ File Submit ------------------- */
   const handleFileSubmit = (file) => {
-    if (!file) return;
+  if (!file) return;
 
-    // 🔥 FIX — Detect file type directly
-    setPreviewType(file.type);
+  // ✅ STRICT FILE TYPE CHECK
+  const isValid = acceptedTypes.some(type => {
+    if (type.startsWith(".")) {
+      return file.name.toLowerCase().endsWith(type);
+    }
+    return file.type === type;
+  });
 
-    // Set preview
-    const url = URL.createObjectURL(file);
-    setPreviewURL(url);
+  if (!isValid) {
+    alert(rejectMessage);     // ✅ WARNING
+    setPreviewURL(null);
+    setPreviewType("");
+    setProgress(0);
+    return;                  // ❌ BLOCK UPLOAD
+  }
 
-    // Pass file to parent tool
-    if (onFileDrop) onFileDrop(file);
+  // ✅ ALLOWED FILE
+  setPreviewType(file.type);
+  const url = URL.createObjectURL(file);
+  setPreviewURL(url);
 
-    // Progress animation
-    setProgress(5);
-    let val = 5;
-    const timer = setInterval(() => {
-      val += 15;
-      if (val >= 100) {
-        val = 100;
-        clearInterval(timer);
-        setTimeout(() => setShowToast(true), 150);
-        setTimeout(() => setShowToast(false), 1500);
-      }
-      setProgress(val);
-    }, 150);
-  };
+  if (onFileDrop) onFileDrop(file);
+
+  setProgress(5);
+  let val = 5;
+  const timer = setInterval(() => {
+    val += 15;
+    if (val >= 100) {
+      val = 100;
+      clearInterval(timer);
+      setTimeout(() => setShowToast(true), 150);
+      setTimeout(() => setShowToast(false), 1500);
+    }
+    setProgress(val);
+  }, 150);
+};
 
   return (
     <div style={styles.container(isDark)}>
@@ -109,11 +124,12 @@ const ToolLayout = ({
     style={styles.dropzone(isDark, dragActive)}
   >
     <input
-      type="file"
-      hidden
-      ref={fileInputRef}
-      onChange={(e) => handleFileSubmit(e.target.files[0])}
-    />
+  type="file"
+  hidden
+  ref={fileInputRef}
+  accept={acceptedTypes.join(",")}
+  onChange={(e) => handleFileSubmit(e.target.files[0])}
+/>
 
     <img
       src="/icons/upload.png"

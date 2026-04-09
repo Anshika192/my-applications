@@ -39,11 +39,13 @@ export default function PDFToolkit({ setActiveTab }) {
   };
 
   return (
-    <ToolLayout
-      title="PDF Toolkit (All‑in‑One)"
-      description="Compress, rotate, extract, reorder, lock, unlock, and optimize PDFs in one place."
-      onBack={() => setActiveTab("dashboard")}
-    >
+     <ToolLayout
+  title="PDF to Text"
+  description="Extract text from PDF"
+  onBack={() => setActiveTab("dashboard")}
+  acceptedTypes={["application/pdf", ".pdf"]}
+  rejectMessage="❌ This tool accepts only PDF files."
+>
       <div style={styles.wrapper}>
         <div style={styles.card}>
 

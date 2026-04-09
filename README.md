@@ -1,6 +1,6 @@
-# 📁 My Applications – PDF & Image Tools Suite
+# 📁 ToolNest – PDF & Image Tools Suite
 
-My Applications is a full‑stack web application that provides a unified platform for multiple productivity tools related to PDF, Image, and Document processing.
+ToolNest is a full‑stack web application that provides a unified platform for multiple productivity tools related to PDF, Image, and Document processing.
 
 The project focuses on integrating commonly used utilities into a single, user‑friendly interface with reliable backend APIs and an administrative control panel.
 

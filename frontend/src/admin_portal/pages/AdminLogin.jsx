@@ -52,7 +52,7 @@ const AdminLogin = ({ onLoginSuccess }) => {
                         <label>Email Address</label>
                         <input
                             type="email"
-                            placeholder="admin@kashish.com"
+                            placeholder="Type Admin Email Here"
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
                             required

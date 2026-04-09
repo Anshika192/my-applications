@@ -64,11 +64,13 @@ const PdfToWord = ({ setActiveTab, onSuccess }) => {
   };
 
   return (
-    <ToolLayout
-      title="PDF to Word"
-      description="Convert PDF into a Word document."
-      onBack={() => setActiveTab("dashboard")}
-    >
+     <ToolLayout
+  title="PDF to Text"
+  description="Extract text from PDF"
+  onBack={() => setActiveTab("dashboard")}
+  acceptedTypes={["application/pdf", ".pdf"]}
+  rejectMessage="❌ This tool accepts only PDF files."
+>
       <input
         type="file"
         accept=".pdf"

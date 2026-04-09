@@ -64,11 +64,13 @@ const PdfMerger = ({ setActiveTab, onSuccess }) => {
   };
 
   return (
-    <ToolLayout
-      title="PDF Merger"
-      description="Merge multiple PDF files into one."
-      onBack={() => setActiveTab("dashboard")}
-    >
+     <ToolLayout
+  title="PDF to Text"
+  description="Extract text from PDF"
+  onBack={() => setActiveTab("dashboard")}
+  acceptedTypes={["application/pdf", ".pdf"]}
+  rejectMessage="❌ This tool accepts only PDF files."
+>
       {/* File Input */}
       <input
         type="file"

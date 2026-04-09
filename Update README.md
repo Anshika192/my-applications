@@ -1,4 +1,4 @@
-# 📁 My Applications – PDF, Image & Document Tools (Full‑Stack Project)
+# 📁 ToolNest – PDF, Image & Document Tools (Full‑Stack Project)
 
 A feature‑rich full‑stack productivity application built with **FastAPI (Python)** and **React + Vite**.  
 This project provides smart tools for **PDF manipulation**, **image conversion**, **OCR**, **document processing**, **MOM (Minutes of Meeting) generation**, and more — all inside one clean web interface.

@@ -54,11 +54,13 @@ const PdfToImage = ({ setActiveTab, onSuccess }) => {
   };
 
   return (
-    <ToolLayout
-      title="PDF to Image"
-      description="Convert each page of a PDF into images (ZIP)."
-      onBack={() => setActiveTab("dashboard")}
-    >
+     <ToolLayout
+  title="PDF to Text"
+  description="Extract text from PDF"
+  onBack={() => setActiveTab("dashboard")}
+  acceptedTypes={["application/pdf", ".pdf"]}
+  rejectMessage="❌ This tool accepts only PDF files."
+>
       <input
         type="file"
         accept="application/pdf"

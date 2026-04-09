@@ -105,11 +105,13 @@ const PdfWatermark = ({ setActiveTab, onSuccess }) => {
   };
 
   return (
-    <ToolLayout
-      title="PDF Watermark"
-      description="Add text watermark to all pages of a PDF"
-      onBack={() => setActiveTab("dashboard")}
-    >
+     <ToolLayout
+  title="PDF to Text"
+  description="Extract text from PDF"
+  onBack={() => setActiveTab("dashboard")}
+  acceptedTypes={["application/pdf", ".pdf"]}
+  rejectMessage="❌ This tool accepts only PDF files."
+>
       <input
         type="file"
         accept="application/pdf"

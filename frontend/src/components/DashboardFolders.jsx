@@ -468,7 +468,7 @@ return (
       <div style={{ marginTop: 0 }}>
         <h3 className="dashboard-heading" style={{ marginTop: 10 }}>
           <span className="heading-icon">📂</span>
-          My Applications
+          ToolNest
         </h3>
 
         <div className="dashboard-container-split" style={{ alignItems: "flex-start" }}>
