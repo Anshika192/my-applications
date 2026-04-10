@@ -160,35 +160,16 @@ app = FastAPI(
 ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    # "https://my-applications-mocha.vercel.app",  # optional fixed prod
+    "https://my-applications.vercel.app"
 ]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# COEP-friendly: CORP on all responses
-# COEP-friendly: CORP + CORS headers on ALL responses (incl. 401/500)
-@app.middleware("http")
-async def cors_and_corp(request, call_next):
-    print("[CORS] Origin:", request.headers.get("origin"))
-    resp = await call_next(request)
-
-    # Add CORS for every response so browser doesn't hide 401/500 as CORS
-    origin = request.headers.get("origin") or "*"
-    resp.headers["Access-Control-Allow-Origin"] = origin
-    resp.headers["Access-Control-Allow-Headers"] = "*"
-    resp.headers["Access-Control-Allow-Methods"] = "*"
-    resp.headers["Vary"] = "Origin"
-
-    # COEP-friendly header
-    resp.headers["Cross-Origin-Resource-Policy"] = "cross-origin"
-    return resp
 
 # ------------------------ Whisper Init (single, low-power CPU safe) ------------------------
 whisper_model: Optional[WhisperModel] = None
