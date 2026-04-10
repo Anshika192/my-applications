@@ -488,3 +488,96 @@
   transform: translateY(-1px); 
   box-shadow: 0 6px 18px rgba(0,0,0,.25); 
 }
+/* =====================================================
+   ✅ ADMIN DASHBOARD – MOBILE RESPONSIVE FIX
+   ===================================================== */
+@media (max-width: 768px) {
+
+  /* Root layout */
+  .admin-dashboard-container {
+    flex-direction: column;
+  }
+
+  /* Sidebar → full-width top menu */
+  .admin-sidebar {
+    position: relative;
+    width: 100%;
+    height: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .admin-nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .nav-item {
+    flex: 1 1 calc(50% - 8px);
+    justify-content: center;
+    font-size: 13px;
+    padding: 8px;
+  }
+
+  .logout-btn {
+    margin-top: 8px;
+  }
+
+  /* Header stacking */
+  .admin-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  /* Content padding */
+  .content-body {
+    padding: 14px;
+  }
+
+  /* Stats grid → single column */
+  .stats-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Charts grid → single column */
+  .charts-container-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Tables → horizontal scroll */
+  .table-container {
+    overflow-x: auto;
+  }
+
+  .feedback-table,
+  .suggestions-table {
+    min-width: 720px; /* allow smooth scroll */
+  }
+
+  /* Filters stack */
+  .logs-filter-bar {
+    flex-direction: column;
+  }
+
+  .logs-filter-bar .field {
+    min-width: 100%;
+  }
+
+  /* Pagination */
+  .pagination-container {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  /* Modal fit */
+  .modal,
+  .modal-card {
+    width: 96vw;
+    max-height: 85vh;
+  }
+}
