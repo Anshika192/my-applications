@@ -158,12 +158,15 @@ app = FastAPI(
 
 # ---- CORS registered EARLY ----
 ALLOWED_ORIGINS = [
-    # Local development
+    # Local
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+
+    # Vercel frontends (ALL that you are seeing)
     "https://my-applications.vercel.app",
     "https://my-applications-frontend-7sk0dk2f7-anshika192.vercel.app",
     "https://my-applications-frontend-7skn0lrxf-anshika192s-projects.vercel.app",
+    "https://my-applications-frontend-fo5t1mibd-anshika192s-projects.vercel.app",
 ]
 
 app.add_middleware(
