@@ -178,16 +178,12 @@ ALLOWED_ORIGINS = [
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://my-applications-frontend.vercel.app",
-    ],
-    allow_origin_regex=r"https://my-applications-frontend-.*\.anshika192s-projects\.vercel\.app",
+    allow_origins=["https://my-applications-frontend.vercel.app"],
+    allow_origin_regex=r"https://my-applications-frontend-.*-anshika192s-projects\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
 
 # ------------------------ Whisper Init (single, low-power CPU safe) ------------------------
 whisper_model: Optional[WhisperModel] = None
