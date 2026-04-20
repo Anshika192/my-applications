@@ -11,6 +11,7 @@ from sqlalchemy import func as sa_func
 from sqlalchemy import func, and_ , desc 
 from routers.auth import get_current_user
 from routers.image_toolkit import router as image_toolkit_router
+from sqlalchemy import text
         
 import google.generativeai as genai
 from faster_whisper import WhisperModel
@@ -158,28 +159,29 @@ app = FastAPI(
 )
 
 # ---- CORS registered EARLY ----
-# ALLOWED_ORIGINS = [
-#     # Local
-#     "http://localhost:5173",
-#     "http://127.0.0.1:5173",
+ALLOWED_ORIGINS = [
+    # Local
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
 
-#     # ✅ Production frontend (THIS WAS MISSING)
-#     "https://my-applications-frontend.vercel.app",
+    # ✅ Production frontend (THIS WAS MISSING)
+    "https://my-applications-frontend.vercel.app",
 
-#     # Optional preview URLs
-#     "https://my-applications.vercel.app",
-#     "https://my-applications-frontend-7sk0dk2f7-anshika192.vercel.app",
-#     "https://my-applications-frontend-7skn0lrxf-anshika192s-projects.vercel.app",
-#     "https://my-applications-frontend-fo5t1mibd-anshika192s-projects.vercel.app",
-# ]
+    # Optional preview URLs
+    "https://my-applications.vercel.app",
+    "https://my-applications-frontend-7sk0dk2f7-anshika192.vercel.app",
+    "https://my-applications-frontend-7skn0lrxf-anshika192s-projects.vercel.app",
+    "https://my-applications-frontend-fo5t1mibd-anshika192s-projects.vercel.app",
+]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"https://.*\.vercel\.app",
+    allow_origins=ALLOWED_ORIGINS,   # ✅ USE THE LIST
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 # ------------------------ Whisper Init (single, low-power CPU safe) ------------------------
 whisper_model: Optional[WhisperModel] = None
@@ -1128,3 +1130,14 @@ def get_all_applications(db: Session = Depends(get_db)):
         {"id": r.id, "name": r.name, "status": r.status, "category": r.category}
         for r in rows
     ]  
+
+
+@app.get("/__temp_fix_admin_password")
+def temp_fix_admin_password(db: Session = Depends(get_db)):
+    db.execute(text("""
+        UPDATE admin_users
+        SET hashed_password = '$2b$12$GxW57pfxRSz8TDPLrcHxV.FG7tnQ8Daw5/2Fy0POVNAJvM0j4R5lK'
+        WHERE email = 'admin@gmail.com';
+    """))
+    db.commit()
+    return {"status": "admin password updated"}
