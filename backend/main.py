@@ -162,7 +162,10 @@ ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 
-    # Vercel frontends (ALL that you are seeing)
+    # ✅ Production frontend (THIS WAS MISSING)
+    "https://my-applications-frontend.vercel.app",
+
+    # Optional preview URLs
     "https://my-applications.vercel.app",
     "https://my-applications-frontend-7sk0dk2f7-anshika192.vercel.app",
     "https://my-applications-frontend-7skn0lrxf-anshika192s-projects.vercel.app",
