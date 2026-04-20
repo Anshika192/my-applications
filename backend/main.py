@@ -36,7 +36,6 @@ from routers.bg_remover import router as bg_remover_router
 from passlib.context import CryptContext
 
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.middleware.cors import CORSMiddleware
 
 def get_current_admin(authorization: str = Header(None)):
     if not authorization or not authorization.startswith("Bearer "):
@@ -179,11 +178,15 @@ ALLOWED_ORIGINS = [
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,   # ✅ USE THE LIST
+    allow_origins=[
+        "https://my-applications-frontend.vercel.app",
+    ],
+    allow_origin_regex=r"https://my-applications-frontend-.*\.anshika192s-projects\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 
 # ------------------------ Whisper Init (single, low-power CPU safe) ------------------------
