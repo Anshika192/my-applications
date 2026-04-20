@@ -164,10 +164,13 @@ ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 
-    # ✅ Production frontend (THIS WAS MISSING)
+    # Production
     "https://my-applications-frontend.vercel.app",
 
-    # Optional preview URLs
+    # ✅ CURRENT ACTIVE VERCEL PREVIEW (MOST IMPORTANT)
+    "https://my-applications-frontend-mcrbp5f1-anshika192s-projects.vercel.app",
+
+    # Older previews (optional)
     "https://my-applications.vercel.app",
     "https://my-applications-frontend-7sk0dk2f7-anshika192.vercel.app",
     "https://my-applications-frontend-7skn0lrxf-anshika192s-projects.vercel.app",
@@ -1132,12 +1135,3 @@ def get_all_applications(db: Session = Depends(get_db)):
     ]  
 
 
-@app.get("/__temp_fix_admin_password")
-def temp_fix_admin_password(db: Session = Depends(get_db)):
-    db.execute(text("""
-        UPDATE admin_users
-        SET hashed_password = '$2b$12$GxW57pfxRSz8TDPLrcHxV.FG7tnQ8Daw5/2Fy0POVNAJvM0j4R5lK'
-        WHERE email = 'admin@gmail.com';
-    """))
-    db.commit()
-    return {"status": "admin password updated"}
