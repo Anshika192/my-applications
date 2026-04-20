@@ -1134,18 +1134,24 @@ def get_all_applications(db: Session = Depends(get_db)):
     ]  
 
 
-@app.get("/__debug_admin_user")
-def debug_admin_user(db: Session = Depends(get_db)):
+@app.get("/__force_admin_setup")
+def force_admin_setup(db: Session = Depends(get_db)):
+    # Check if admin already exists
     admin = db.query(models.AdminUser).filter(
         models.AdminUser.email == "admin@gmail.com"
     ).first()
 
-    if not admin:
-        return {"exists": False}
+    if admin:
+        # Update password just in case
+        admin.hashed_password = "$2b$12$GxW57pfxRSz8TDPLrcHxV.FG7tnQ8Daw5/2Fy0POVNAJvM0j4R5lK"
+    else:
+        # Create admin
+        admin = models.AdminUser(
+            email="admin@gmail.com",
+            hashed_password="$2b$12$GxW57pfxRSz8TDPLrcHxV.FG7tnQ8Daw5/2Fy0POVNAJvM0j4R5lK",
+            role="admin"
+        )
+        db.add(admin)
 
-    return {
-        "exists": True,
-        "email": admin.email,
-        "role": admin.role,
-        "hash_preview": admin.hashed_password[:10]  # safe partial
-    }
+    db.commit()
+    return {"status": "admin ensured"}
