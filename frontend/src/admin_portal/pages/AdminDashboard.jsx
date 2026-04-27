@@ -172,17 +172,26 @@ useEffect(() => {
 
 const fetchAllData = async () => {
   const token = localStorage.getItem("admin_token");
+
+  // ✅ Guard: token & API_BASE required
   if (!token || !API_BASE) {
     console.warn("Skipping admin API calls. Missing token or API_BASE.");
     setLoading(false);
     return;
   }
 
-  const config = {
-    headers: { Authorization: `Bearer ${token}` },
-  };
+  try {
+    const config = {
+      headers: { Authorization: `Bearer ${token}` },
+    };
 
-    const [fbRes, logsRes, usersRes, statsRes, appsRes] = await Promise.all([
+    const [
+      fbRes,
+      logsRes,
+      usersRes,
+      statsRes,
+      appsRes,
+    ] = await Promise.all([
       axios.get(`${API_BASE}/api/admin/feedbacks`, config),
       axios.get(`${API_BASE}/api/admin/logs`, config).catch(() => ({ data: [] })),
       axios.get(`${API_BASE}/api/admin/users`, config).catch(() => ({ data: [] })),
@@ -190,45 +199,42 @@ const fetchAllData = async () => {
       axios.get(`${API_BASE}/api/admin/tools`, config),
     ]);
 
-    // ✅ rest of your existing logic unchanged
+    // Normalize feedbacks
+    const fbs = (fbRes.data || []).map(r => ({
+      ...r,
+      status: normalizeStatus(r.status ?? r.state ?? r.feedback_status),
+    }));
 
-      // Normalize feedback status
-      const fbs = (fbRes.data || []).map(r => ({
-        ...r,
-        status: normalizeStatus(r.status ?? r.state ?? r.feedback_status)
-      }));
+    setFeedbacks(fbs);
+    setLogs(logsRes.data || []);
+    setUsers(usersRes.data || []);
 
-      setFeedbacks(fbs);
-      setLogs(logsRes.data || []);
-      setUsers(usersRes.data || []);
+    const appList = Array.isArray(appsRes?.data) ? appsRes.data : [];
+    setTools(appList);
 
-      // Applications master (source of truth for total tools)
-      const appList = Array.isArray(appsRes?.data) ? appsRes.data : [];
-      setTools(appList);
+    if (statsRes?.data) {
+      setDashboardStats({
+        ...statsRes.data,
+        total_tools: appList.length,
+      });
 
-      if (statsRes?.data) {
-        setDashboardStats({
-          ...statsRes.data,
-          total_tools: appList.length, // override with master count
-        });
-        // Store top tools from dashboard stats (for modal and chart fallback)
-        if (Array.isArray(statsRes.data.top_tools)) {
-          setTopTools(statsRes.data.top_tools);
-        }
-      } else {
-        setDashboardStats(s => ({ ...s, total_tools: appList.length }));
+      if (Array.isArray(statsRes.data.top_tools)) {
+        setTopTools(statsRes.data.top_tools);
       }
-
-      // Dashboard previews
-      buildOpenFeedbackPreview(fbs);
-      await loadSuggestionsPreview(token);
-    } catch (err) {
-      console.error('Fetch Error:', err);
-      if (err?.response?.status === 401) handleLogout();
-    } finally {
-      setLoading(false);
+    } else {
+      setDashboardStats(s => ({ ...s, total_tools: appList.length }));
     }
-  };
+
+    buildOpenFeedbackPreview(fbs);
+    await loadSuggestionsPreview(token);
+
+  } catch (err) {
+    console.error("Fetch Error:", err);
+    if (err?.response?.status === 401) handleLogout();
+  } finally {
+    setLoading(false);
+  }
+};
 
   // ✅ Build open feedback (latest 5) preview — only Pending/Reviewed/Open (NOT resolved)
   function buildOpenFeedbackPreview(all) {
