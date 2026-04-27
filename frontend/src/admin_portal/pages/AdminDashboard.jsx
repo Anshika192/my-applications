@@ -150,7 +150,7 @@ const AdminDashboard = ({ onLogout }) => {
   const [toolsModalMode, setToolsModalMode] = useState('top');
 
   // same base as api.js — TIP: in dev set VITE_API_URL=/api and use Vite proxy
-  const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
+const API_BASE = import.meta.env.VITE_API_URL;
 
   const menuItems = [
     { id: 'dashboard',   label: 'Dashboard',   icon: <LayoutDashboard size={20} /> },
@@ -170,18 +170,17 @@ useEffect(() => {
   fetchAllData();
 }, []);
 
- const fetchAllData = async () => {
-  const token = localStorage.getItem('admin_token');
-
-  // ✅ HARD STOP if token missing
-  if (!token) {
-    console.warn("Admin token missing – skipping admin API calls");
+const fetchAllData = async () => {
+  const token = localStorage.getItem("admin_token");
+  if (!token || !API_BASE) {
+    console.warn("Skipping admin API calls. Missing token or API_BASE.");
     setLoading(false);
     return;
   }
 
-  try {
-    const config = { headers: { Authorization: `Bearer ${token}` } };
+  const config = {
+    headers: { Authorization: `Bearer ${token}` },
+  };
 
     const [fbRes, logsRes, usersRes, statsRes, appsRes] = await Promise.all([
       axios.get(`${API_BASE}/api/admin/feedbacks`, config),
