@@ -1334,3 +1334,128 @@ body {
     transform: rotate(360deg);
   }
 }
+/* =====================================================
+   ✅ MOBILE RESPONSIVE FIX (FINAL)
+   Paste at the VERY END of CSS
+   ===================================================== */
+
+@media (max-width: 768px) {
+
+  /* -------- Global reset for mobile -------- */
+  body {
+    overflow-x: hidden;
+  }
+
+  .app-container,
+  .app-shell {
+    min-height: 100vh;
+  }
+
+  /* -------- Topbar fix (header cut issue) -------- */
+  .dash-topbar {
+    height: auto;
+    min-height: 56px;
+    padding: 8px 12px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .dash-topbar-right {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .dash-search {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  /* -------- Main content spacing -------- */
+  .main-content {
+    padding: calc(var(--topbar-height) + 16px) 12px 100px;
+  }
+
+  /* -------- Header inside pages -------- */
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .header h1 {
+    font-size: 22px;
+  }
+
+  .search-bar {
+    width: 100%;
+  }
+
+  /* -------- Dashboard layout -------- */
+  .dashboard-container-split {
+    flex-direction: column;
+  }
+
+  .dashboard-right {
+    min-width: unset;
+    padding-left: 0;
+    border-left: none;
+    margin-top: 16px;
+  }
+
+  /* -------- Cards & grids -------- */
+  .app-grid {
+    gap: 1rem;
+  }
+
+  .app-card {
+    padding: 1rem;
+  }
+
+  /* -------- Login / forms (cut fix) -------- */
+  .login-wrapper {
+    min-height: 100vh;
+    padding: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .login-card {
+    width: 100%;
+    max-width: 360px;
+    padding: 20px;
+    border-radius: 12px;
+  }
+
+ 
+.bottom-footer-container {
+    display: flex !important;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    z-index: 2600;
+  }
+
+  /* -------- Buttons & text -------- */
+  button,
+  .launch-btn,
+  .tool-btn-primary,
+  .tool-btn-accent {
+    width: 100%;
+  }
+}
+
+/* Extra small devices (phones) */
+@media (max-width: 420px) {
+  .dashboard-heading {
+    font-size: 18px;
+  }
+
+  .ap-kpi-value {
+    font-size: 18px !important;
+  }
+}
+.dashboard-content {
+  position: relative;
+}

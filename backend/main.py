@@ -176,14 +176,22 @@ ALLOWED_ORIGINS = [
     "https://my-applications-frontend-fo5t1mibd-anshika192s-projects.vercel.app",
 ]
 
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://my-applications-frontend.vercel.app"],
+    # ✅ Explicit local + prod
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "https://my-applications-frontend.vercel.app",
+    ],
+    # ✅ All Vercel previews (future‑proof)
     allow_origin_regex=r"https://my-applications-frontend-.*-anshika192s-projects\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 # ------------------------ Whisper Init (single, low-power CPU safe) ------------------------
 whisper_model: Optional[WhisperModel] = None

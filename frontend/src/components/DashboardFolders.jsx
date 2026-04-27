@@ -62,7 +62,7 @@ const DashboardFolders = ({
   user,
   onLogout
 }) => {
-  const [openIndex, setOpenIndex] = useState(0);
+  const [openIndex, setOpenIndex] = useState(null);
   const [search, setSearch] = useState("");
 
   // topbar dropdown
@@ -465,7 +465,11 @@ return (
       </div>
 
       {/* ✅ CONTENT */}
-      <div style={{ marginTop: 0 }}>
+      {/* ✅ CONTENT */}
+<div
+  className="dashboard-content"
+  style={{ paddingTop: "calc(var(--topbar-height) + 12px)" }}
+>
         <h3 className="dashboard-heading" style={{ marginTop: 10 }}>
           <span className="heading-icon">📂</span>
           ToolNest
