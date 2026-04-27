@@ -86,14 +86,14 @@ useEffect(() => {
     try {
     const res = await fetch(`${API_BASE}/applications/all`);
 if (!res.ok) throw new Error("Failed to load tools");
-const all = await res.json();
-      const all = await res.json();
 
-      const disabled = all
-        .filter((t) => t.status === "disabled")
-        .map((t) => t.name);
+const all = await res.json(); // ✅ only ONCE
 
-      setDisabledTools(disabled);
+const disabled = all
+  .filter((t) => t.status === "disabled")
+  .map((t) => t.name);
+
+setDisabledTools(disabled);
     } catch (e) {
       console.error("Failed loading tools", e);
     }
