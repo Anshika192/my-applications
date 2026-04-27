@@ -164,23 +164,34 @@ const AdminDashboard = ({ onLogout }) => {
   ];
 
   /* ---------------- Initial Dashboard data + Previews ---------------- */
-  useEffect(() => {
-    fetchAllData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+useEffect(() => {
+  const token = localStorage.getItem("admin_token");
+  if (!token) return; // ✅ don't even call
+  fetchAllData();
+}, []);
 
-  const fetchAllData = async () => {
-    try {
-      const token = localStorage.getItem('admin_token');
-      const config = { headers: { Authorization: `Bearer ${token}` } };
+ const fetchAllData = async () => {
+  const token = localStorage.getItem('admin_token');
 
-      const [fbRes, logsRes, usersRes, statsRes, appsRes] = await Promise.all([
-  axios.get(`${API_BASE}/api/admin/feedbacks`, config),
-  axios.get(`${API_BASE}/api/admin/logs`, config).catch(() => ({ data: [] })),
-  axios.get(`${API_BASE}/api/admin/users`, config).catch(() => ({ data: [] })),
-  axios.get(`${API_BASE}/api/admin/dashboard-stats`, config).catch(() => ({ data: null })),
-  axios.get(`${API_BASE}/api/admin/tools`, config),
-]);
+  // ✅ HARD STOP if token missing
+  if (!token) {
+    console.warn("Admin token missing – skipping admin API calls");
+    setLoading(false);
+    return;
+  }
+
+  try {
+    const config = { headers: { Authorization: `Bearer ${token}` } };
+
+    const [fbRes, logsRes, usersRes, statsRes, appsRes] = await Promise.all([
+      axios.get(`${API_BASE}/api/admin/feedbacks`, config),
+      axios.get(`${API_BASE}/api/admin/logs`, config).catch(() => ({ data: [] })),
+      axios.get(`${API_BASE}/api/admin/users`, config).catch(() => ({ data: [] })),
+      axios.get(`${API_BASE}/api/admin/dashboard-stats`, config).catch(() => ({ data: null })),
+      axios.get(`${API_BASE}/api/admin/tools`, config),
+    ]);
+
+    // ✅ rest of your existing logic unchanged
 
       // Normalize feedback status
       const fbs = (fbRes.data || []).map(r => ({
