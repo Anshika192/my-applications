@@ -80,11 +80,13 @@ const DashboardFolders = ({
 
   const [toast, setToast] = useState("");
   const [disabledTools, setDisabledTools] = useState([]);
-
+ const API_BASE = import.meta.env.VITE_API_URL;
 useEffect(() => {
   const loadDisabled = async () => {
     try {
-      const res = await fetch("/applications/all");
+    const res = await fetch(`${API_BASE}/applications/all`);
+if (!res.ok) throw new Error("Failed to load tools");
+const all = await res.json();
       const all = await res.json();
 
       const disabled = all
